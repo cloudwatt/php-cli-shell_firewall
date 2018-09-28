@@ -1,0 +1,35 @@
+<?php
+	define("ROOT_DIR", __DIR__);
+	require_once('services/firewall.php');
+
+	if(!isset($configurations))
+	{
+		$configurations = array(
+			__DIR__ . '/configurations/config.json',
+			__DIR__ . '/configurations/config.user.json',
+			__DIR__ . '/configurations/firewall.json',
+			__DIR__ . '/configurations/firewall.user.json',
+		);
+	}
+
+	/**
+	  * Déplace le curseur d'une ligne vers le haut
+	  * Fix le saut de ligne lors de la touche entrée pour lancer le script CLI
+	  *
+	  * Permet d'harmoniser le traitement des sauts de lignes:
+	  * --> Saut de ligne avant un texte et non après!
+	  */
+	echo "\033[1A";
+
+	/**
+	  * Change [IPAM_SERVER_KEY] with the key of your PHPIPAM server in configuration file
+	  * You can add many PHPIPAM server, it is compatible multiple PHPIPAM  
+	  * If you have not PHPIPAM service, remove argument or keep it empty
+	  *
+	  * Example with PHPIPAM disabled: $MAIN = new Service_Firewall($configurations, array());
+	  * Example with PHPIPAM enabled: $MAIN = new Service_Firewall($configurations, array('myIpamKey_1', 'myIpamKey_2'));
+	  */
+	$MAIN = new Service_Firewall($configurations, array('[IPAM_SERVER_KEY]'));
+
+	echo PHP_EOL;
+	exit();
