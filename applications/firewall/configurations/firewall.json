@@ -1,0 +1,21 @@
+{
+	"FIREWALL": {
+		"configuration": {
+			"paths": {
+				"objects": "backup/firewall/objects.json",
+				"configs": "backup/firewall/configurations",
+				"exports": "tmp/firewall",
+				"autosave": "backup/firewall/autosave.json",
+				"templates": "templates/firewall"
+			},
+			"autosave": {
+				"status": true
+			},
+			"templates": {
+				"juniper-junos_set": {
+					"updateMode": "replace"
+				}
+			}
+		}
+	}
+}

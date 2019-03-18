@@ -1,0 +1,19 @@
+<?php
+	define("ROOT_DIR", __DIR__);
+	define("APP_DIR", __DIR__ . '/applications/firewall');
+
+	/**
+	  * Change [env] with the name of your environment
+	  *
+	  * Example: APP_DIR . '/configurations/firewall.envA.json'
+	  */
+	$configurations = array(
+		__DIR__ . '/configurations/ipam.json',
+		__DIR__ . '/configurations/ipam.user.json',
+		APP_DIR . '/configurations/firewall.json',
+		APP_DIR . '/configurations/firewall.user.json',
+		__DIR__ . '/configurations/firewall.[env].json',
+		__DIR__ . '/configurations/firewall.[env].user.json',
+	);
+
+	require_once(__DIR__ . '/firewall.php');

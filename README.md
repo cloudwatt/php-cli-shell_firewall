@@ -2,11 +2,19 @@
 
 This repository is the addon for PHP-CLI SHELL about FIREWALL (acl) service.  
 With this addon you can create ACLs (monosite, failover and fullmesh) and generate template for your firewall appliance.  
-For the moment, only JunOS templates are availables. There are 2 templates for JunOS: one formated with {} and one with set commands.    
+It is possible to upload ACLs config file to firewall with SCP. For SCP, you can use an SSH bastion.    
 
-ACL monosite: basic ACL, source(s), destination(s), no automation. For this ACL category you can not enable fullmesh option! 
-ACL failover: failover ACL(s) will be automaticaly generated for all failover sites in inbound or outbound.  
-ACL failover with fullmesh option: source and destination of ACL will be isolated to process automation.
+For the moment, there are 2 templates:
+* Juniper JunOS  
+  __there are 2 templates for JunOS: one formated with {} and one with set commands__
+* Cisco ASA   
+
+ACL monosite:
+* basic ACL, source(s), destination(s), no automation. For this ACL category you can not enable fullmesh option!  
+
+ACL failover:
+* __without fullmesh option:__ failover ACL(s) will be automaticaly generated for all failover sites in inbound or outbound.  
+* __with fullmesh option:__ like without but source and destination of ACL will be isolated per zone to process automation.
 
 You have to use base PHP-CLI SHELL project that is here: https://github.com/cloudwatt/php-cli-shell_base
 
@@ -14,57 +22,76 @@ You have to use base PHP-CLI SHELL project that is here: https://github.com/clou
 # INSTALLATION
 
 #### APT PHP
+Ubuntu only, you can get last PHP version from this PPA:  
 __*https://launchpad.net/~ondrej/+archive/ubuntu/php*__
 * add-apt-repository ppa:ondrej/php
-* apt-get update
-* apt install php7.1-cli php7.1-mbstring php7.1-readline
+* apt update
+
+You have to install a PHP version >= 7.1:
+* apt update
+* apt install php7.2-cli php7.2-mbstring php7.2-readline php7.2-curl  
+__Do not forget to install php7.2-curl if you use PHPIPAM__
 
 #### REPOSITORIES
 * git clone https://github.com/cloudwatt/php-cli-shell_base
-* git checkout tags/v1.1
+* git checkout tags/v2.0
 * git clone https://github.com/cloudwatt/php-cli-shell_firewall
-* git checkout tags/v1.0
+* git checkout tags/v2.0
 * Merge these two repositories
 
 #### PHPIPAM (Optionnal)
 If you have PHPIPAM and you want object name autocompletion, you have to perform these steps:
 * git clone https://github.com/cloudwatt/php-cli-shell_phpipam
-* git checkout tags/v1.1
+* git checkout tags/v2.0
 * Merge this repository with two previous repositories (base and firewall)
 * Install PHP-CLI SHELL for PHPIPAM with README helper  
   https://github.com/cloudwatt/php-cli-shell_phpipam/blob/master/README.md
-	
+
+
 #### CONFIGURATION FILE
-* mv configurations/firewall.json.example configurations/firewall.json
-* vim configurations/firewall.json
+__[env] is not used by PHP-CLI, it is for user when he has many environments or sites to managed__
+* mv applications/firewall/configurations/firewall.envA.json.example configurations/firewall.[env].json
+* vim configurations/firewall.[env].json
     * Adapt configuration to your network topology
 	* Of course you can add more than two sites
 	* Do not change topology attribute names: internet, onPremise, interSite, private
-	* /!\ Zone name between site (MPLS-ADM, MPLS-USR) must be the same on all sites  
-	  *This is will change in next release to add more flexibility*
 * Optionnal
     * You can create user configuration files for base and firewall services to overwrite some configurations  
 	  These files will be ignored for commits, so your user config files can not be overwrited by a futur release
-	* vim configurations/firewall.user.json
+	* mv applications/firewall/configurations/firewall.envA.user.json.example configurations/firewall.[env].user.json
+	* vim configurations/firewall.[env].user.json
 	  Change configuration like path or file
 	* All *.user.json files are ignored by .gitignore
-	
+* Cisco-ASA
+    * Add this configuration in options section under sites to declare a global zone: "globalZone": "global"  
+
 
 #### PHP LAUNCHER FILE
 * mv firewall.php.example firewall.php
 * vim firewall.php
     * Change [IPAM_SERVER_KEY] with the key of your PHPIPAM server in configuration file  
 	  You can add many PHPIPAM server, it is compatible multiple PHPIPAM  
-	  If you have not PHPIPAM service, remove argument or keep it empty
+	  If you have not PHPIPAM service, remove argument or keep it empty  
+__[env] is not used by PHP-CLI, it is for user when he has many environments or sites to managed__
+* mv firewall.envA.php.example firewall.[env].php
+* vim firewall.[env].php
+    * Change [env] with the name of your environment
 
-#### CREDENTIALS FILE (Only if you install PHPIPAM service)
-/!\ For security reason, use a read only account!  
+
+#### CREDENTIALS FILE
 __*Change informations which are between []*__
 * vim credentialsFile
     * read -sr USER_PASSWORD_INPUT
-    * export IPAM_[IPAM_SERVER_KEY]_LOGIN=[YourLoginHere]
+	* export SSH_SYS_LOGIN=[YourSystemLoginHere]
+	* export SSH_NET_LOGIN=[YourNetworkLoginHere]
+	* export SSH_NET_PASSWORD=$USER_PASSWORD_INPUT  
+	__Bastion authentication must be base on certificate__  
+
+	__PHPIPAM__ (Only if you use PHPIPAM service/addon)  
+	/!\ For security reason, use a read only account!
+	* export IPAM_[IPAM_SERVER_KEY]_LOGIN=[YourLoginHere]
     * export IPAM_[IPAM_SERVER_KEY]_PASSWORD=$USER_PASSWORD_INPUT  
-	__Change [IPAM_SERVER_KEY] with the key of your PHPIPAM server in configuration file__
+	__Change [IPAM_SERVER_KEY] with the key of your PHPIPAM server in configuration file__  
 
 
 # EXECUTION
@@ -72,7 +99,7 @@ __*Change informations which are between []*__
 #### SHELL
 Launch PHP-CLI Shell for FIREWALL service
 * source credentialsFile
-* php firewall.php
+* php firewall.[env].php
 
 #### CLI
 Call commands directly from your OS shell.  

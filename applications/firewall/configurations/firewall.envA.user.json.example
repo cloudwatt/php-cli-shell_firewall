@@ -1,0 +1,48 @@
+{
+	"FIREWALL":
+	{
+		"sites": {
+			"site_A": {
+				"scp": true,
+				"scp_loginCredential": false,
+				"scp_loginEnvVarName": "SSH_NET_LOGIN",
+				"scp_passwordCredential": false,
+				"scp_passwordEnvVarName": "SSH_NET_PASSWORD",
+				"scp_remoteFile": "/var/tmp/new-rules.txt",
+				"ssh_remotePort": "22",
+				"ssh_bastionHost": "bastion.siteA.local",
+				"ssh_bastionPort": "22",
+				"ssh_portForwarding": "22001",
+				"ssh_loginCredential": false,
+				"ssh_loginEnvVarName": "CW_SSH_SYS_LOGIN",
+				"ssh_passwordCredential": false,
+				"ssh_passwordEnvVarName": false
+			},
+			"site_B": {
+				"scp": true,
+				"scp_loginCredential": false,
+				"scp_loginEnvVarName": "SSH_NET_LOGIN",
+				"scp_passwordCredential": false,
+				"scp_passwordEnvVarName": "SSH_NET_PASSWORD",
+				"scp_remoteFile": "/var/tmp/new-rules.txt",
+				"ssh_remotePort": "22",
+				"ssh_bastionHost": "bastion.siteB.local",
+				"ssh_bastionPort": "22",
+				"ssh_portForwarding": "22002",
+				"ssh_loginCredential": false,
+				"ssh_loginEnvVarName": "SSH_SYS_LOGIN",
+				"ssh_passwordCredential": false,
+				"ssh_passwordEnvVarName": false
+			}
+		},
+		"configuration":
+		{
+			"paths": {
+				"objects": "backup/firewall/objects_envA.json",
+				"configs": "backup/firewall/configurations/envA",
+				"exports": "tmp/firewall/envA",
+				"autosave": "backup/firewall/autosave_envA.json"
+			}
+		}
+	}
+}
