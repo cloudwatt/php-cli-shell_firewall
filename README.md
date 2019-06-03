@@ -33,6 +33,13 @@ You have to install a PHP version >= 7.1:
 * apt install php7.3-cli php7.3-mbstring php7.3-readline php7.3-curl  
 __Do not forget to install php7.3-curl if you use PHPIPAM__
 
+For MacOS users which use PHP 7.3, there is an issue with PCRE.
+You have to add this configuration in your php.ini:
+```ini
+pcre.jit=0
+```
+*To locate your php.ini, use this command: php -i | grep "Configuration File"*
+
 #### REPOSITORIES
 * git clone https://github.com/cloudwatt/php-cli-shell_base
 * git checkout tags/v2.1
@@ -48,7 +55,6 @@ If you have PHPIPAM and you want object name autocompletion, you have to perform
 * Install PHP-CLI SHELL for PHPIPAM with README helper  
   https://github.com/cloudwatt/php-cli-shell_phpipam
 
-
 #### CONFIGURATION FILE
 __[env] is not used by PHP-CLI, it is for user when he has many environments or sites to managed__
 * mv applications/firewall/configurations/firewall.envA.json.example configurations/firewall.[env].json
@@ -63,9 +69,23 @@ __[env] is not used by PHP-CLI, it is for user when he has many environments or 
 	* vim configurations/firewall.[env].user.json
 	  Change configuration like path or file
 	* All *.user.json files are ignored by .gitignore
+* Juniper JunOS
+    * In firewall.json, you can change the configuration push method:  
+	```json
+	"templates": {
+		"juniper-junos_set": {
+			"updateMode": "replace"
+		}
+	}
+	```
+	*Available modes: merge or replace*
 * Cisco-ASA
-    * Add this configuration in options section under sites to declare a global zone: "globalZone": "global"  
-
+    * Add this configuration in options section under sites to declare a global zone:  
+	```json
+	"options": {
+		"globalZone": "global"
+	}
+	```
 
 #### PHP LAUNCHER FILE
 * mv firewall.php.example firewall.php
@@ -77,7 +97,6 @@ __[env] is not used by PHP-CLI, it is for user when he has many environments or 
 * mv firewall.envA.php.example firewall.[env].php
 * vim firewall.[env].php
     * Change [env] with the name of your environment
-
 
 #### CREDENTIALS FILE
 __*Change informations which are between []*__
