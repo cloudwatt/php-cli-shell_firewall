@@ -11,23 +11,39 @@
 		const FIELD_ATTRv4 = 'subnetV4';
 		const FIELD_ATTRv6 = 'subnetV6';
 		const FIELD_ATTRS = array(
-			'subnetV4', 'subnetV6'
+			4 => 'subnetV4', 6 => 'subnetV6'
 		);
 		const FIELD_ATTR_FCT = 'subnet';
 		const FIELD_ATTRS_FCT = 'subnets';
 
+		const SEPARATOR = '/';
+
 		protected $_datas = array(
+			'_id_' => null,
 			'name' => null,
 			'subnetV4' => null,
 			'subnetV6' => null,
 		);
 
 
-		public function __construct($name = null, $subnetV4 = null, $subnetV6 = null)
+		/**
+		  * @param string $id ID
+		  * @param string $name Name
+		  * @param string $subnetV4 Subnet v4
+		  * @param string $subnetV6 Subnet v6
+		  * @return $this
+		  */
+		public function __construct($id = null, $name = null, $subnetV4 = null, $subnetV6 = null)
 		{
+			$this->id($id);
 			$this->name($name);
 			$this->subnet($subnetV4);
 			$this->subnet($subnetV6);
+		}
+
+		public function configure($address)
+		{
+			return $this->subnet($address);
 		}
 
 		public function subnet($subnet)
@@ -106,7 +122,7 @@
 					if($this->isIPv4() && $addressApi->isIPv4() && Tools::cidrMatch($addressApi->attributeV4, $this->attributeV4)) {
 						return true;
 					}
-					elseif($this->isIPv6()&& $addressApi->isIPv6() && Tools::cidrMatch($addressApi->attributeV6, $this->attributeV6)) {
+					elseif($this->isIPv6() && $addressApi->isIPv6() && Tools::cidrMatch($addressApi->attributeV6, $this->attributeV6)) {
 						return true;
 					}
 
@@ -118,7 +134,7 @@
 					if($this->isIPv4() && $addressApi->isIPv4() && Tools::subnetInSubnet($addressApi->attributeV4, $this->attributeV4)) {
 						return true;
 					}
-					elseif($this->isIPv6()&& $addressApi->isIPv6() && Tools::subnetInSubnet($addressApi->attributeV6, $this->attributeV6)) {
+					elseif($this->isIPv6() && $addressApi->isIPv6() && Tools::subnetInSubnet($addressApi->attributeV6, $this->attributeV6)) {
 						return true;
 					}
 
@@ -133,7 +149,7 @@
 					) {
 						return true;
 					}
-					elseif($this->isIPv6()&& $addressApi->isIPv6() && 
+					elseif($this->isIPv6() && $addressApi->isIPv6() && 
 							Tools::cidrMatch($addressApi->beginV6, $this->attributeV6) &&
 							Tools::cidrMatch($addressApi->finishV6, $this->attributeV6)
 					) {
@@ -145,5 +161,87 @@
 			}
 
 			return false;
+		}
+
+		public function __get($name)
+		{
+			switch($name)
+			{
+				case 'networkV4':
+				case 'networkIpV4':
+				{
+					if($this->isIPv4()) {
+						$subnetParts = explode('/', $this->subnetV4);
+						return $subnetParts[0];
+					}
+					else {
+						return false;
+					}
+				}
+				case 'maskV4':
+				{
+					if($this->isIPv4()) {
+						$subnetParts = explode('/', $this->subnetV4);
+						return $subnetParts[1];
+					}
+					else {
+						return false;
+					}
+				}
+				case 'netMaskV4':
+				{
+					if($this->isIPv4()) {
+						$subnetParts = explode('/', $this->subnetV4);
+						return Tools::cidrMaskToNetMask($subnetParts[1]);
+					}
+					else {
+						return false;
+					}
+				}
+				case 'broadcastIpV4':
+				{
+					if($this->isIPv4()) {
+						$subnetParts = explode('/', $this->subnetV4);
+						return Tools::broadcastIp($subnetParts[0], $subnetParts[1]);
+					}
+					else {
+						return false;
+					}
+				}
+				case 'networkV6':
+				case 'networkIpV6':
+				{
+					if($this->isIPv6()) {
+						$subnetParts = explode('/', $this->subnetV6);
+						return $subnetParts[0];
+					}
+					else {
+						return false;
+					}
+				}
+				case 'maskV6':
+				{
+					if($this->isIPv6()) {
+						$subnetParts = explode('/', $this->subnetV6);
+						return $subnetParts[1];
+					}
+					else {
+						return false;
+					}
+				}
+				case 'broadcastIpV6':
+				{
+					if($this->isIPv6()) {
+						$subnetParts = explode('/', $this->subnetV6);
+						return Tools::broadcastIp($subnetParts[0], $subnetParts[1]);
+					}
+					else {
+						return false;
+					}
+				}
+				default: {
+					return parent::__get($name);
+				}
+			}
 		}
 	}

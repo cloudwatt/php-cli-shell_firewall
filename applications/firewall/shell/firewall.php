@@ -23,7 +23,9 @@
 			'network' => Core\Api_Network::OBJECT_TYPE,
 			'networks' => Core\Api_Network::OBJECT_TYPE,
 			'rule' => Core\Api_Rule::OBJECT_TYPE,
-			'rules' => Core\Api_Rule::OBJECT_TYPE
+			'rules' => Core\Api_Rule::OBJECT_TYPE,
+			'flow' => Core\Api_Flow::OBJECT_TYPE,
+			'flows' => Core\Api_Flow::OBJECT_TYPE,
 		);
 
 		const REGEX_ALL_ALL = "#^\"?[0-9a-z\-_.:\#/ ]+\"?$#i";
@@ -38,32 +40,32 @@
 		const REGEX_SUBNET_NAME_WC = "#^\"?[0-9a-z\-_.:\# *]+\"?$#i";
 		const REGEX_NETWORK_NAME = "#^\"?[0-9a-z\-_.:\# ]+\"?$#i";
 		const REGEX_NETWORK_NAME_WC = "#^\"?[0-9a-z\-_.:\# *]+\"?$#i";
-		const REGEX_RULE_NAME = "#^\"?[0-9]+\"?$#i";
-		const REGEX_RULE_DESC = "#^\"?([a-z0-9\-_.,;+=()\[\]/ ]+)\"?$#i";
-		const REGEX_RULE_DESC_WC = "#^\"?([a-z0-9\-_.,;+=()\[\]/ *]+)\"?$#i";
+		const REGEX_RULE_NAME = "#^\"?[0-9a-z\-_]+\"?$#i";
+		const REGEX_RULE_DESC = "#^\"?([[:print:]]*)\"?$#i";								// * and not + to allow empty description
+		const REGEX_RULE_DESC_WC = "#^\"?([[:print:]]+)\"?$#i";
+		const REGEX_RULE_TAG = "#^[[:print:]]+$#i";
+		const REGEX_RULE_TAG_WC = "#^[[:print:]]+$#i";
+		const REGEX_RULE_FIELD_PRINT = "#^[[:print:]]+$#i";
+		const REGEX_CONFIG_FILE_PRINT = "#^\"?[[:print:]]+\"?$#i";
 
-		/**
-		  * @var Addon\Ipam\Connector\Abstract
-		  */
-		protected $_IPAM;
+		const PROTOCOLS = array('ip', 'tcp', 'udp', 'icmp', 'icmp6', 'esp', 'gre');
 
-		/**
-		  * @var App\Firewall\Core\Sites
-		  */
-		protected $_sites = null;
+		const REGEX_ADDRESS = "#^\"?[0-9a-f.:\/\-]+\"?$#i";
+		const REGEX_PROTOCOL = "#^\"?[0-9]{1,5}((-[0-9]{1,5})|(:[0-9]{1,3}))?\"?$#i";		// ICMP type[:code]
 
 		protected $_commands = array(
 			'help', 'history',
 			'ls', 'll', 'exit', 'quit',
 			'find', 'search',
-			'filter' => array(
-				'duplicates',
-			),
 			'show' => array(
 				'site', 'host', 'subnet', 'network', 'rule', 
 				'sites', 'hosts', 'subnets', 'networks', 'rules', 
 			),
-			'locate' => array('host', 'subnet', 'network', 'rule'),
+			'locate' => array('host', 'subnet', 'network', 'rule', 'flow'),
+			'filter' => array(
+				'duplicates',
+				'rules' => array('duplicates'),
+			),
 			'create' => array('host', 'subnet', 'network', 'rule'),
 			'clone' => array('rule'),
 			'site',
@@ -73,12 +75,14 @@
 			'destination' => array('host', 'subnet', 'network'),
 			'protocol',
 			'description',
+			'tag', 'tags',
 			'check',
 			'reset' => array(
 				'source' => array('host', 'subnet', 'network'),
 				'destination' => array('host', 'subnet', 'network'),
 				'protocol',
-				'sources', 'destinations', 'protocols'
+				'sources', 'destinations', 'protocols',
+				'tag', 'tags'
 			),
 			'modify' => array('host', 'subnet', 'network', 'rule'),
 			'refresh' => array(
@@ -91,10 +95,10 @@
 			'clear' => array('sites', 'hosts', 'subnets', 'networks', 'rules'),
 			//'export' => array('configuration', 'hosts', 'subnets', 'networks', 'rules'),	// @todo a coder
 			'import' => array('configuration'),
-			'export' => array('configuration'),
+			'export' => array('configuration', 'rules'),
 			'copy' => array('configuration'),
 			'ipam' => array('search', 'import'),
-			'load', 'save',
+			'load', 'run', 'save',
 			'firewall',
 		);
 
@@ -117,9 +121,6 @@
 				0 => array('all', 'host', 'subnet', 'network', 'rule'),
 				1 => self::REGEX_ALL_ALL_WC
 			),
-			'filter duplicates' => array(
-				0 => array('hosts', 'subnets', 'networks', 'rules'),
-			),
 			'show host' => self::REGEX_HOST_NAME_WC,
 			'show subnet' => self::REGEX_SUBNET_NAME_WC,
 			'show network' => self::REGEX_NETWORK_NAME_WC,
@@ -131,7 +132,22 @@
 			'locate host' => array(0 => self::REGEX_HOST_NAME, 1 => array('exact')),
 			'locate subnet' => array(0 => self::REGEX_SUBNET_NAME_WC, 1 => array('exact')),
 			'locate network' => array(0 => self::REGEX_NETWORK_NAME_WC, 1 => array('exact')),
-			'locate rule' => array(0 => self::REGEX_RULE_DESC_WC, 1 => array('exact')),
+			'locate rule' => array(0 => self::REGEX_RULE_FIELD_PRINT, 1 => array('exact')),
+			'locate flow' => array(
+				0 => array('source'),
+				1 => self::REGEX_ADDRESS,
+				2 => array('destination'),
+				3 => self::REGEX_ADDRESS,
+				4 => array('protocol'),
+				5 => self::PROTOCOLS,
+				6 => self::REGEX_PROTOCOL
+			),
+			'filter duplicates' => array(
+				0 => array('hosts', 'subnets', 'networks', 'rules', 'flows'),
+			),
+			'filter rules duplicates' => array(
+				0 => array('addresses', 'protocols', 'tags', 'all'),
+			),
 			'create host' => array(
 				0 => self::REGEX_HOST_NAME,
 				1 => '#^\"?(([0-9]{1,3}\.){3}[0-9]{1,3})|([a-f0-9:]+)\"?$#i',
@@ -147,10 +163,10 @@
 				1 => '#^\"?(([0-9]{1,3}\.){3}[0-9]{1,3}-[0-9]{1,3}\.){3}[0-9]{1,3})|([a-f0-9:]+-[a-f0-9:]+)\"?$#i',
 				2 => '#^\"?(([0-9]{1,3}\.){3}[0-9]{1,3}-[0-9]{1,3}\.){3}[0-9]{1,3})|([a-f0-9:]+-[a-f0-9:]+)\"?$#i'
 			),		// IPv4/IPv6
-			'create rule' => array(0 => array('monosite', 'failover')),
-			'clone rule' => array(0 => self::REGEX_RULE_NAME, 1 => array('monosite', 'failover')),
+			'create rule' => array(0 => array('monosite', 'failover'), 1 => self::REGEX_RULE_NAME),
+			'clone rule' => array(0 => self::REGEX_RULE_NAME, 1 => self::REGEX_RULE_NAME),
 			'category' => array(0 => array('monosite', 'failover')),
-			'fullmesh' => array(0 => array('enable', 'en', 'disable', 'dis')),
+			'fullmesh' => array(0 => array('enable', 'disable')),
 			'action' => array(0 => array('permit', 'deny')),
 			'status' => array(0 => array('enable', 'disable')),
 			'source host' => self::REGEX_HOST_NAME,
@@ -159,15 +175,18 @@
 			'destination host' => self::REGEX_HOST_NAME,
 			'destination subnet' => self::REGEX_SUBNET_NAME,
 			'destination network' => self::REGEX_NETWORK_NAME,
-			'protocol' => array(0 => array('ip', 'tcp', 'udp', 'icmp', 'icmp6', 'esp', 'gre'), 1 => '#^\"?[0-9]{1,5}((-[0-9]{1,5})|(:[0-9]{1,3}))?\"?$#i'),	// ICMP type[:code]
+			'protocol' => array(0 => self::PROTOCOLS, 1 => self::REGEX_PROTOCOL),
+			'description' => self::REGEX_RULE_DESC,
+			'tag' => self::REGEX_RULE_TAG,
+			'tags' => array(),		//see __construct
 			'reset source host' => self::REGEX_HOST_NAME,
 			'reset source subnet' => self::REGEX_SUBNET_NAME,
 			'reset source network' => self::REGEX_NETWORK_NAME,
 			'reset destination host' => self::REGEX_HOST_NAME,
 			'reset destination subnet' => self::REGEX_SUBNET_NAME,
 			'reset destination network' => self::REGEX_NETWORK_NAME,
-			'reset protocol' => array(0 => array('ip', 'tcp', 'udp', 'icmp', 'icmp6', 'esp', 'gre'), 1 => '#^\"?[0-9]{1,5}((-[0-9]{1,5})|(:[0-9]{1,3}))?\"?$#i'),	// ICMP type[:code]
-			'description' => self::REGEX_RULE_DESC,
+			'reset protocol' => array(0 => self::PROTOCOLS, 1 => self::REGEX_PROTOCOL),
+			'reset tag' => self::REGEX_RULE_TAG,
 			'modify host' => array(
 				0 => self::REGEX_HOST_NAME,
 				1 => '#^(([0-9]{1,3}\.){3}[0-9]{1,3})|([a-f0-9:]+)$#i',
@@ -201,13 +220,10 @@
 			'remove subnet' => self::REGEX_SUBNET_NAME,
 			'remove network' => self::REGEX_NETWORK_NAME,
 			'remove rule' => self::REGEX_RULE_NAME,
-			'import configuration' => array(0 => array('csv'), 1 => "#^[0-9a-z\-_/()\[\].]+$#i", 2 => array('force')),
-			'export configuration' => array(0 => array('cisco_asa', 'junos', 'junos_set'), 1 => array('force')),				// /!\ voir __construct
-			/*'export hosts' => array(0 => array('cisco_asa', 'junos', 'junos_set'), 1 => array('force')),
-			'export subnets' => array(0 => array('cisco_asa', 'junos', 'junos_set'), 1 => array('force')),
-			'export networks' => array(0 => array('cisco_asa', 'junos', 'junos_set'), 1 => array('force')),
-			'export rules' =>array(0 => array('cisco_asa', 'junos', 'junos_set'), 1 => array('force')),*/
-			'copy configuration' => array(1 => array('scp')),																	// /!\ voir __construct
+			'import configuration' => array(0 => array('csv', 'json'), 1 => self::REGEX_CONFIG_FILE_PRINT, 2 => "#^[\S]+$#i", 3 => array('force')),
+			'export configuration' => array(0 => array('cisco_asa', 'cisco_asa-dap', 'juniper_junos', 'juniper_junos-set'), 1 => array('force')),			// /!\ voir __construct
+			'export rules' => array(0 => array('web_html'), 1 => array('force')),
+			'copy configuration' => array(0 => array(), 1 => array('scp')),																					// /!\ voir __construct
 			'ipam search' => array(
 				0 => array('all', 'host', 'subnet'),
 				1 => self::REGEX_IPAM_NAME_WC
@@ -216,8 +232,9 @@
 				0 => array('host', 'subnet'),
 				1 => self::REGEX_IPAM_NAME_WC
 			),
-			'load' => "#^[0-9a-z\-_]+$#i",
-			'save' => array(0 => "#^[0-9a-z\-_]+$#i", 1 => array('force')),
+			'load' => array(0 => self::REGEX_CONFIG_FILE_PRINT, 1 => "#^[\S]+$#i", 2 => array('force')),
+			'run' => array(0 => self::REGEX_CONFIG_FILE_PRINT, 2 => array('force')),
+			'save' => array(0 => self::REGEX_CONFIG_FILE_PRINT, 1 => array('force')),
 			'exit' => array(0 => array('force')),
 			'quit' => array(0 => array('force')),
 		);
@@ -292,16 +309,19 @@
 		protected $_manCommands = array(
 			'site' => "Indique sur quel(s) site(s) la/es règle(s) doit/doivent s'appliquer",
 			'search' => "Recherche avancée d'éléments custom. Utilisation: search [type] [recherche]",
-			'filter' => "Applique un filtre spécial puis affiche le résultat. Utilisation: filter [name] [options]",
 			'show' => "Affiche une section ou une entrée d'une section. Utilisation: show [site|host|subnet|network|rule] [name|ruleID]",
+			'locate' => "Recherche d'éléments utilisés dans les règles. Utilisation: locate [type] [recherche] [exact]",
+			'locate flow' => "Recherche d'un flow utilisé dans les règles. Utilisation: locate flow source [address] destination [address] protocol [protoName] [protoOptions]",
+			'filter' => "Applique un filtre spécial puis affiche le résultat. Utilisation: filter [name] [options]",
+			'filter rules' => "Applique un filtre spécial sur les règles puis affiche le résultat. Utilisation: filter rules [name] [options]",
 			'create host' => "Crée un objet host custom. Utilisation: create host [name] [IPv4:address] [IPv6:address]",
 			'create subnet' => "Crée un objet subnet custom. Utilisation: create subnet [name] [IPv4:network/mask] [IPv6:network/mask]",
 			'create network' => "Crée un objet network custom. Utilisation: create network [name] [IPv4:ipFirst-ipLast] [IPv6:ipFirst-ipLast]",
-			'create rule' => "Crée une règle de filtrage",
-			'create rule monosite' => "Crée une règle sans flux de backup",
-			'create rule failover' => "Crée une règle avec flux de backup",
-			'clone' => "Clone un objet. Utilisation: clone [rule]",
-			'clone rule' => "Clone une règle. Utilisation: clone rule [ID] [monosite|failover]",
+			'create rule' => "Crée une règle de filtrage. Utilisation: create rule [monosite|failover] [name]",
+			'create rule monosite' => "Crée une règle sans flux de backup. Utilisation: create rule monosite [name]",
+			'create rule failover' => "Crée une règle avec flux de backup. Utilisation: create rule failover [name]",
+			'clone' => "Clone un objet. Utilisation: clone [type]",
+			'clone rule' => "Clone une règle. Utilisation: clone rule [srcName] [dstName]",
 			'category' => "Indique la catégorie de la règle",
 			'category monosite' => "Règle sans flux de backup",
 			'category failover' => "Règle avec flux de backup",
@@ -312,14 +332,18 @@
 			'destination' => "Configure une ou plusieurs destination(s)",
 			'protocol' => "Configure un ou plusieurs protocole(s)",
 			'description' => "Ajoute une description à la règle",
+			'tag' => "Ajoute un tag à la règle. Utilisation: tag [tag]",
+			'tags' => "Ajoute plusieurs tags à la règle. Utilisation: tags [tag1] [tag2] [tag3] ...",
 			'check' => "Vérifie l'ensemble des règles ou la règle en cours d'édition et retourne l'erreur si il y en a une",
 			'reset' => "Réinitialise sources, destinations et protocoles pour la règle en cours d'édition. Utilisation: reset [source|sources|destination|destinations|protocol|protocols]",
 			'reset source' => "Réinitialise une source pour la règle en cours d'édition",
 			'reset destination' => "Réinitialise une destination pour la règle en cours d'édition",
 			'reset protocol' => "Réinitialise un protocole pour la règle en cours d'édition",
+			'reset tag' => "Réinitialise un tag pour la règle en cours d'édition",
 			'reset sources' => "Réinitialise les sources pour la règle en cours d'édition",
 			'reset destinations' => "Réinitialise les destinations pour la règle en cours d'édition",
 			'reset protocols' => "Réinitialise les protocoles pour la règle en cours d'édition",
+			'reset tags' => "Réinitialise les tags pour la règle en cours d'édition",
 			'modify' => "Modifie une entrée d'une section",
 			'modify host' => "Modifie un objet host custom. Utilisation: modify host [name] [IPv4:address] [IPv6:address]",
 			'modify subnet' => "Modifie un objet subnet custom. Utilisation: modify subnet [name] [IPv4:network/mask] [IPv6:network/mask]",
@@ -344,37 +368,48 @@
 			'remove network' => "Supprime un objet network custom. Utilisation: remove network [name]",
 			'remove rule' => "Supprime une règle de filtrage. Utilisation: remove rule [id]",
 			'clear' => "Supprime entièrement une section",
-			'import' => "Importe la configuration depuis un format défini. Utilisation: import configuration [format] [filename] [force]",
+			'import' => "Importe la configuration depuis un format défini. Utilisation: import [section]",
+			'import configuration' => "Importe la configuration depuis un format défini. Utilisation: import configuration [format] [filename] [prefix] [force]",
 			'export' => "Exporte la configuration vers un format défini. Utilisation: export [section]",
 			'export configuration' => "Exporte la configuration vers un format défini. Utilisation: export configuration [format] [force]",
+			'export rules' => "Exporte les règles vers un format défini. Utilisation: export rules [format] [force]",
 			'copy' => "Copie la configuration vers un emplacement défini. Utilisation: copy [section]",
-			'copy configuration' => "Copie la configuration vers un emplacement défini. Utilisation: copy configuration [method] [site]",
+			'copy configuration' => "Copie la configuration vers un emplacement défini. Utilisation: copy configuration [format] [method] [site]",
 			'ipam' => "Interraction avec l'IPAM (recherche, ...)",
 			'ipam search' => "Recherche avancée d'éléments dans l'IPAM. Utilisation: ipam search [type] [recherche]",
 			'ipam import' => "Importe un élément de l'IPAM dans l'inventaire local. Utilisation: ipam import [type] [recherche]",
-			'load' => "Charge une configuration. Utilisation: load [name]",
+			'load' => "Charge une configuration. Utilisation: load [filename][.json|.csv] [prefix] [force]",
+			'run' => "Exécute les commandes. Utilisation: run [filename] [force]",
 			'save' => "Sauvegarde la configuration. Utilisation: save [name] [force]",
 			'firewall' => "Lance la GUI du FIREWALL",
 			'ls' => "Affiche la liste des objets (hosts, subnets, networks, rules)",
 			'll' => "Alias de ls",
 			'find' => "Recherche avancée d'éléments. Utilisation: find . [type] [recherche]",
-			'locate' => "Recherche d'éléments utilisés dans les règles. Utilisation: locate [type] [recherche] [exact]",
 			'history' => "Affiche l'historique des commandes",
 			'exit' => "Ferme le shell",
 			'quit' => "Alias de exit",
 		);
+
+		/**
+		  * @var App\Firewall\Core\Sites
+		  */
+		protected $_sites = null;
 
 
 		public function __construct($configFilename, array $servers, $autoInitialisation = true)
 		{
 			parent::__construct($configFilename);
 
-			$printInfoMessages = !$this->isOneShotCall();
+			if(!$this->isOneShotCall()) {
+				$printInfoMessages = true;
+				ob_end_flush();
+			}
+			else {
+				$printInfoMessages = false;
+			}
 
 			if(count($servers) > 0) {
-				$IPAM = new Ipam\Connector($servers, $printInfoMessages);
-				$this->_IPAM = $IPAM->getAllIpam();
-				Ipam\Api_Abstract::setIpam($this->_IPAM);
+				$this->_initAddons($servers, $printInfoMessages);
 			}
 
 			$this->_sites = new Core\Sites($this->_CONFIG);
@@ -404,11 +439,55 @@
 				}
 			}
 
+			$this->_inlineArgCmds['tags'] = array_fill(0, 9, self::REGEX_RULE_TAG);
+			$this->_TERMINAL->setInlineArg('tags', $this->_inlineArgCmds['tags']);
+
+			$this->_inlineArgCmds['load'][0] = Closure::fromCallable(array($this->_PROGRAM, 'shellAutoC_load'));
+			$this->_TERMINAL->setInlineArg('load', $this->_inlineArgCmds['load']);
+
+			$this->_inlineArgCmds['run'][0] = Closure::fromCallable(array($this->_PROGRAM, 'shellAutoC_filesystem'));
+			$this->_TERMINAL->setInlineArg('run', $this->_inlineArgCmds['run']);
+
 			$this->_inlineArgCmds['import configuration'][1] = Closure::fromCallable(array($this->_PROGRAM, 'shellAutoC_filesystem'));
 			$this->_TERMINAL->setInlineArg('import configuration', $this->_inlineArgCmds['import configuration']);
 
 			if($autoInitialisation) {
 				$this->_init();
+			}
+		}
+
+		protected function _initAddons(array $servers, $printInfoMessages)
+		{
+			$Addon_Orchestrator = Ipam\Orchestrator::getInstance($this->_CONFIG->IPAM);
+			$Addon_Orchestrator->debug($this->_addonDebug);
+
+			foreach($servers as $server)
+			{
+				$Addon_Service = $Addon_Orchestrator->newService($server);
+
+				if($printInfoMessages) {
+					$adapterMethod = $Addon_Service->getMethod();
+					C\Tools::e(PHP_EOL."Connection ".$adapterMethod." à l'IPAM @ ".$server." veuillez patienter ... ", 'blue');
+				}
+
+				try {
+					$isReady = $Addon_Service->initialization();
+				}
+				catch(\Exception $e) {
+					if($printInfoMessages) { C\Tools::e("[KO]", 'red'); }
+					$this->error("Impossible de démarrer le service IPAM:".PHP_EOL.$e->getMessage(), 'red');
+					exit;
+				}
+
+				if(!$isReady) {
+					if($printInfoMessages) { C\Tools::e("[KO]", 'red'); }
+					$this->error("Le service IPAM n'a pas pu être correctement initialisé", 'red');
+					exit;
+				}
+
+				if($printInfoMessages) {
+					C\Tools::e("[OK]", 'green');
+				}
 			}
 		}
 
@@ -449,6 +528,7 @@
 				case 'destination_network':
 				case 'protocol':
 				case 'description':
+				case 'tag':
 				{
 					$args = array($option);
 					break;
@@ -469,6 +549,7 @@
 				case 'create_network':
 				case 'import_configuration':
 				case 'export_configuration':
+				case 'tags':
 				{
 					$args = explode(self::CLI_OPTION_DELIMITER, $option);
 					break;
@@ -601,6 +682,27 @@
 					}
 					case 'locate rule': {
 						$status = $this->_PROGRAM->locateRule($args);
+						break;
+					}
+					case 'locate flow': {
+						$status = $this->_PROGRAM->locateFlow($args);
+						break;
+					}
+					// --------------------------------------------------
+
+					// OBJECT > FILTER
+					case 'filter duplicates':
+					{
+						if(count($args) === 1 && array_key_exists($args[0], self::ARG_TYPES)) {
+							$status = $this->_PROGRAM->filter('duplicates', self::ARG_TYPES[$args[0]]);
+						}
+						else {
+							$status = false;
+						}
+						break;
+					}
+					case 'filter rules duplicates': {
+						$status = $this->_PROGRAM->filterRules('duplicates', $args);
 						break;
 					}
 					// --------------------------------------------------
@@ -754,16 +856,6 @@
 					}
 					break;
 				}
-				case 'filter duplicates':
-				{
-					if(count($args) === 1 && array_key_exists($args[0], self::ARG_TYPES)) {
-						$status = $this->_PROGRAM->filter('duplicates', self::ARG_TYPES[$args[0]]);
-					}
-					else {
-						$status = false;
-					}
-					break;
-				}
 				// --------------------------------------------------
 
 				// ---------------------- IPAM ----------------------
@@ -839,6 +931,14 @@
 					$status = $this->_PROGRAM->rule_description($args);
 					break;
 				}
+				case 'tag': {
+					$status = $this->_PROGRAM->rule_tag(Core\Api_Tag::OBJECT_TYPE, $args);
+					break;
+				}
+				case 'tags': {
+					$status = $this->_PROGRAM->rule_tags(Core\Api_Tag::OBJECT_TYPE, $args);
+					break;
+				}
 				case 'check': {
 					$status = $this->_PROGRAM->rule_check();
 					break;
@@ -875,6 +975,10 @@
 					$status = $this->_PROGRAM->rule_reset('protocol', Core\Api_Protocol::OBJECT_TYPE, $args);
 					break;
 				}
+				case 'reset tag': {
+					$status = $this->_PROGRAM->rule_reset('tag', Core\Api_Tag::OBJECT_TYPE, $args);
+					break;
+				}
 				case 'reset sources': {
 					$status = $this->_PROGRAM->rule_reset('sources');
 					break;
@@ -885,6 +989,10 @@
 				}
 				case 'reset protocols': {
 					$status = $this->_PROGRAM->rule_reset('protocols');
+					break;
+				}
+				case 'reset tags': {
+					$status = $this->_PROGRAM->rule_reset('tags');
 					break;
 				}
 				case 'exit':
@@ -909,6 +1017,11 @@
 				case 'load':
 				{
 					$status = $this->_PROGRAM->load($args);
+					break;
+				}
+				case 'run':
+				{
+					$status = $this->_PROGRAM->run($args);
 					break;
 				}
 				case 'save':
@@ -940,12 +1053,12 @@
 				{
 					$status = $this->_PROGRAM->export(Core\Api_Network::OBJECT_TYPE, $args);
 					break;
-				}
+				}*/
 				case 'export rules':
 				{
 					$status = $this->_PROGRAM->export(Core\Api_Rule::OBJECT_TYPE, $args);
 					break;
-				}*/
+				}
 				case 'copy configuration':
 				{
 					$status = $this->_PROGRAM->copy(null, $args);
@@ -961,6 +1074,8 @@
 						if(isset($this->_sites->{$args[0]}))
 						{
 							$Site = $this->_sites->{$args[0]};
+
+							$ip = $Site->ip;
 							$hostname = $Site->hostname;
 							$guiProtocol = $Site->getGuiProtocol();
 							$guiAddress = $Site->getGuiAddress();
@@ -969,7 +1084,7 @@
 							{
 								case 'http':
 								case 'https': {
-									$address = $guiProtocol.'://'.$guiAddress;
+									$address = ($guiAddress !== false) ? ($guiAddress) : ($guiProtocol.'://'.$ip);
 									$cmd = $this->_CONFIG->DEFAULT->sys->browserCmd;
 									break;
 								}
@@ -982,7 +1097,7 @@
 
 									if(!file_exists($jnlpFilename))
 									{
-										$jnlpUrl = $Site->jnlp;
+										$jnlpUrl = ($guiAddress !== false) ? ($guiAddress) : ($Site->jnlp);
 
 										// @todo configurable
 										$options = array(
@@ -1007,7 +1122,7 @@
 									break;
 								}
 								case 'ssh': {
-									$address = $guiAddress;
+									$address = ($guiAddress !== false) ? ($guiAddress) : ($ip);
 									$cmd = $this->_CONFIG->DEFAULT->sys->secureShellCmd;
 									break;
 								}

@@ -51,16 +51,16 @@ exit
 ?>
 
 <?php
-	$interfaces = array();
+	$aclNames = array();
 
 	foreach($this->accessLists as $accessList)
 	{
-		if(!in_array($accessList['interface'], $interfaces, true))
+		if(!in_array($accessList['aclName'], $aclNames, true))
 		{
-			$interfaces[] = $accessList['interface'];
+			$aclNames[] = $accessList['aclName'];
 ?>
 
-clear configure access-list ACL_NEW_<?php echo $accessList['interface']; ?>_access_in
+clear configure access-list ACL_NEW_<?php echo $accessList['aclName']; ?>
 <?php
 		}
 
@@ -164,11 +164,11 @@ clear configure access-list ACL_NEW_<?php echo $accessList['interface']; ?>_acce
 					if($accessList['description'] !== '')
 					{
 ?>
-access-list ACL_NEW_<?php echo $accessList['interface']; ?>_access_in remark <?php echo $accessList['description']; ?>  
+access-list ACL_NEW_<?php echo $accessList['aclName']; ?> remark <?php echo $accessList['description']; ?>  
 <?php
 					}
 ?>
-access-list ACL_NEW_<?php echo $accessList['interface']; ?>_access_in <?php echo implode(' ', $acl); ?>  
+access-list ACL_NEW_<?php echo $accessList['aclName']; ?> <?php echo implode(' ', $acl); ?>  
 <?php
 				}
 			}
@@ -176,31 +176,49 @@ access-list ACL_NEW_<?php echo $accessList['interface']; ?>_access_in <?php echo
 
 		echo PHP_EOL;
 	}
+?>
 
+access-list ACL_DAP_All-deny extended deny ip any any
+
+<?php
 	echo PHP_EOL.PHP_EOL;
 
-	foreach($interfaces as $interface)
+	foreach($aclNames as $aclName)
 	{
-		if($this->globalZone === $interface)
-		{
 ?>
 
-access-group ACL_NEW_<?php echo $interface; ?>_access_in global
-<?php
-		}
-		else
-		{
-?>
-
-access-group ACL_NEW_<?php echo $interface; ?>_access_in in interface <?php echo $interface; ?>  
-<?php
-		}
-?>
-
-clear configure access-list ACL_OLD_<?php echo $interface; ?>  
-access-list <?php echo $interface; ?>_access_in rename ACL_OLD_<?php echo $interface; ?>  
-access-list ACL_NEW_<?php echo $interface; ?>_access_in rename <?php echo $interface; ?>_access_in
+clear configure access-list ACL_OLD_<?php echo $aclName; ?>  
+access-list ACL_<?php echo $aclName; ?> rename ACL_OLD_<?php echo $aclName; ?>  
+access-list ACL_NEW_<?php echo $aclName; ?> rename ACL_<?php echo $aclName; ?>  
 
 <?php
 	}
+
+	echo PHP_EOL.PHP_EOL;
+
+	foreach($this->dap as $dap)
+	{
 ?>
+
+dynamic-access-policy-record DAP_<?php echo $dap['name']; ?>
+<?php
+		foreach($dap['acl'] as $aclName)
+		{
+?>
+
+  network-acl ACL_<?php echo $aclName; ?>  
+  no network-acl ACL_OLD_<?php echo $aclName; ?>
+<?php
+		}
+?>
+
+  priority <?php echo $dap['priority']; ?>  
+exit
+<?php
+	}
+?>
+
+dynamic-access-policy-record DAP_All-Deny
+  network-acl ACL_DAP_All-deny
+  priority 0
+exit

@@ -127,11 +127,27 @@ security
 				then {
 					<?php echo ($accessList['action']) ? ('permit;') : (''); ?>
 
+					<?php
+						if(in_array('logging', $accessList['tags'], true))
+						{
+					?>
+
 					log {               
 						session-init;
 						session-close;
 					}
+					<?php
+						}
+
+						if(in_array('counter', $accessList['tags'], true))
+						{
+					?>
+
 					count;
+					<?php
+						}
+					?>
+
 				}
 			}
 		}

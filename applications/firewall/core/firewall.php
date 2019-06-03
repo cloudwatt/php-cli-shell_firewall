@@ -18,6 +18,7 @@
 		protected $_site;
 
 		/**
+		  * Firewall name
 		  * @var string
 		  */
 		protected $_name = null;
@@ -40,7 +41,7 @@
 
 			$this->_site = $site;
 
-			$this->name($site->name);
+			$this->name($site->hostname);
 		}
 
 		public function name($name)
@@ -132,6 +133,7 @@
 					$this->_objects[$key][] = $object;
 				}
 			}
+
 			return $this;
 		}
 
@@ -161,6 +163,33 @@
 			$this->_objects[$class::OBJECT_KEY] = array();
 			return $this;
 		}
+
+		/*public function checkObjects($objectKey = null)
+		{
+			if($objectKey === null) {
+				$objectsToCheck = $this->_objects;
+			}
+			elseif(array_key_exists($objectKey, $this->_objects)) {
+				$objectsToCheck = array($objectKey => $this->_objects);
+			}
+			else {
+				throw new Exception("Object key '".$objectKey." is not valid", E_USER_ERROR); 
+			}
+
+			$invalidObjects = array();
+
+			foreach($objectsToCheck as $objects)
+			{
+				foreach($objects as $object)
+				{
+					if(!$object->isValid()) {
+						$invalidObjects[] = $object;
+					}
+				}
+			}
+
+			return $invalidObjects;
+		}*/
 
 		public function __get($name)
 		{

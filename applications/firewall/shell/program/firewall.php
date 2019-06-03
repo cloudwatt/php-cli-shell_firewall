@@ -2,6 +2,7 @@
 	namespace App\Firewall;
 
 	use ArrayObject;
+	use SplFileObject;
 
 	use Core as C;
 	use Core\Exception as E;
@@ -47,8 +48,8 @@
 				'format' => "%s\t\t\t\t\t\t\t\t%s\t\t\t%s"
 			),
 			'rule' => array(
-				'fields' => array('id', 'category', 'fullmesh', 'state', 'action', 'description', 'date'),
-				'format' => "[%d]\t{%s}\t\tFullmesh: %s\t\tStatus: %s\t\tAction: %s\t\t(%s)\t\t@%s",
+				'fields' => array('id', 'category', 'fullmesh', 'state', 'action', 'description', 'tags', 'date'),
+				'format' => "[%d]\t{%s}\t\tFullmesh: %s\t\tStatus: %s\t\tAction: %s\t\t(%s)\t\t%s\t\t@%s",
 				'sources' => array(
 					'fields' => array('source'),
 					'format' => "%s [%s] {%s}"
@@ -60,6 +61,10 @@
 				'protocols' => array(
 					'fields' => array('protocol'),
 					'format' => "%s"
+				),
+				'tags' => array(
+					'fields' => array('tag'),
+					'format' => "\t- %s"
 				)
 			)
 		);
@@ -94,12 +99,13 @@
 				'networkV6' => 'Network V6: %s',
 			),
 			'rule' => array(
-				'id' => 'ID: %d',
+				'id' => 'ID: %s',
 				'date' => 'Date: %s',
 				'category' => 'Type: %s',
 				'fullmesh' => 'Fullmesh: %s',
 				'description' => 'Description: %s',
-				'state' => 'Status: %s',
+				'tags' => 'Tags:'.PHP_EOL.'%s',
+				'state' => PHP_EOL.'Status: %s',
 				'action' => 'Action: %s',
 				'acl' => PHP_EOL.'%s',
 			)
@@ -191,10 +197,12 @@
 			), ArrayObject::ARRAY_AS_PROPS);
 
 			$this->_ipamFwProgram = new Shell_Program_Firewall_Ipam();
-			$this->_ruleFwProgram = new Shell_Program_Firewall_Object_Rule($SHELL, $this->_objects);
-			$this->_addressFwProgram = new Shell_Program_Firewall_Object_Address($SHELL, $this->_objects);
-			$this->_configFwProgram = new Shell_Program_Firewall_Config($SHELL, $this->_objects);
+
 			$this->_siteFwProgram = new Shell_Program_Firewall_Object_Site($SHELL, $this->_objects, $this->_fwSites);
+			$this->_addressFwProgram = new Shell_Program_Firewall_Object_Address($SHELL, $this->_objects);
+			$this->_ruleFwProgram = new Shell_Program_Firewall_Object_Rule($SHELL, $this->_objects);
+
+			$this->_configFwProgram = new Shell_Program_Firewall_Config($SHELL, $this->_objects, $this->_siteFwProgram, $this->_addressFwProgram, $this->_ruleFwProgram);
 
 			$this->_fwPrograms = array(
 				Core\Api_Site::OBJECT_TYPE => $this->_siteFwProgram,
@@ -218,10 +226,22 @@
 
 		public function syncFirewalls()
 		{
+			$sites = array();
+
 			foreach($this->_sites as $siteApi) {
-				$Core_Site = $this->_fwSites->{$siteApi->name};
+				$sites[$siteApi->name] = $this->_fwSites->{$siteApi->name};
+			}
+
+			$toDelete = array_diff_key($this->_firewalls, $sites);
+			$toCreate = array_diff_key($sites, $this->_firewalls);
+
+			foreach($toDelete as $siteName => $Core_Firewall) {
+				unset($this->_firewalls[$siteName]);
+			}
+
+			foreach($toCreate as $siteName => $Core_Site) {
 				$firewall = new Core\Firewall($Core_Site);
-				$this->_firewalls[$siteApi->name] = $firewall;
+				$this->_firewalls[$siteName] = $firewall;
 				$this->syncFirewall($firewall);
 			}
 
@@ -499,21 +519,21 @@
 			{
 				$name = $args[0];
 
-				if(array_key_exists($type, Shell_Program_Firewall_Object::OBJECT_CLASSES)) {
-					$class = Shell_Program_Firewall_Object::OBJECT_CLASSES[$type];
+				if(($class = Shell_Program_Firewall_Object::getClass($type)) !== false)
+				{
+					$objects = $this->_getItemObjects($type, $name);
+
+					if(count($objects) > 0) {
+						$this->_RESULTS->append($objects);
+						$infos = $this->_formatObjects($type, $objects, Shell_Program_Firewall_Object_Abstract::VIEW_EXTENSIVE);
+						$this->_printInformations($type, $infos);
+					}
+					else {
+						$this->_SHELL->error(ucfirst($class::OBJECT_NAME)." '".$name."' introuvable", 'orange');
+					}
 				}
 				else {
 					throw new Exception("Unknown object type '".$type."'", E_USER_ERROR);
-				}
-
-				$objects = $this->_getObjectInfos($type, $name);
-
-				if(count($objects) > 0) {
-					$this->_printInformations($type, $objects);
-				}
-				else {
-					$objectName = ucfirst($class::OBJECT_NAME);
-					$this->_SHELL->error($objectName." '".$name."' introuvable", 'orange');
 				}
 
 				return true;
@@ -549,48 +569,28 @@
 
 		protected function _showObjectsInfos($type, array $args = null)
 		{
-			if(array_key_exists($type, Shell_Program_Firewall_Object::OBJECT_CLASSES)) {
-				$class = Shell_Program_Firewall_Object::OBJECT_CLASSES[$type];
+			if(($class = Shell_Program_Firewall_Object::getClass($type)) !== false)
+			{
+				if(isset($args[0])) {
+					$objects = $this->_getItemObjects($type, $args[0]);
+				}
+				else {
+					$objects = $this->_objects[$class::OBJECT_KEY];
+				}
+
+				if(count($objects) > 0) {
+					$this->_RESULTS->append($objects);
+					$infos = $this->_formatObjects($type, $objects, Shell_Program_Firewall_Object_Abstract::VIEW_BRIEF);
+					$this->_printObjectsList(array($type => $infos));
+				}
+				else {
+					$this->_SHELL->error("Aucun ".$class::OBJECT_NAME." trouvé", 'orange');
+				}
 			}
 			else {
 				throw new Exception("Unknown object type '".$type."'", E_USER_ERROR);
 			}
 
-			if(isset($args[0])) {
-				$infos = $this->_getObjectInfos($type, $args[0]);
-			}
-			else
-			{
-				$infos = array();
-				$objects = $this->_objects[$class::OBJECT_KEY];
-
-				switch($type)
-				{
-					case Core\Api_Site::OBJECT_TYPE:
-					{
-						foreach($objects as $site) {
-							$infos[] = $this->_siteFwProgram->format($site, $this->_LIST_FIELDS);
-						}
-						break;
-					}
-					case Core\Api_Rule::OBJECT_TYPE:
-					{
-						foreach($objects as $rule) {
-							$infos[] = $this->_ruleFwProgram->format($rule, $this->_LIST_FIELDS);
-						}
-						break;
-					}
-					default: {
-						$infos = $objects;
-					}
-				}
-			}
-
-			if(count($infos) === 0) {
-				$this->_SHELL->error("Aucun ".$class::OBJECT_NAME." trouvé", 'orange');
-			}
-
-			$this->_printObjectsList(array($type => $infos));
 			return true;
 		}
 		// --------------------------------------------------
@@ -617,37 +617,155 @@
 			return $this->_locate(Core\Api_Rule::OBJECT_TYPE, $args);
 		}
 
+		public function locateFlow(array $args)
+		{
+			return $this->_locate(Core\Api_Flow::OBJECT_TYPE, $args);
+		}
+
 		protected function _locate($type, array $args)
 		{
 			if(count($args) >= 1)
 			{
 				$strict = (isset($args[1]) && $args[1] === 'exact');
 
-				$infos = array();
-
-				if($type === Core\Api_Rule::OBJECT_TYPE) {
-					$result = $this->_ruleFwProgram->locate($type, $args[0], $strict);
-				}
-				else {
-					$result = $this->_addressFwProgram->locate($type, $args[0], $strict);
-				}
-
-				if(is_array($result) && count($result) > 0)
+				switch($type)
 				{
-					foreach($result as $rule) {
-						$infos[] = $this->_ruleFwProgram->format($rule, $this->_LIST_FIELDS);
+					case Core\Api_Host::OBJECT_TYPE:
+					case Core\Api_Subnet::OBJECT_TYPE:
+					case Core\Api_Network::OBJECT_TYPE: {
+						$results = $this->_addressFwProgram->locate($type, $args[0], $strict);
+						$type = Core\Api_Rule::OBJECT_TYPE;											// Retourne des règles
+						break;
 					}
+					case Core\Api_Rule::OBJECT_TYPE: {
+						$results = $this->_ruleFwProgram->locate($type, $args[0], $strict);
+						break;
+					}
+					case Core\Api_Flow::OBJECT_TYPE: {
+						$type = Core\Api_Rule::OBJECT_TYPE;											// Recherche des règles
+						$results = $this->_ruleFwProgram->locateFlow($type, $args, $strict);		// /!\ Passer l'ensemble des arguments!
+						break;
+					}
+					default: {
+						return false;
+					}
+				}
 
-					$this->_printObjectsList(array(Core\Api_Rule::OBJECT_TYPE => $infos));
+				if(is_array($results) && count($results) > 0) {
+					$view = Shell_Program_Firewall_Object_Abstract::VIEW_BRIEF;
+					$infos = $this->_formatObjects($type, $results, $view);
+					$this->_printObjectsList(array($type => $infos));
 					return true;
 				}
 				else {
-					return $result;
+					return $results;
 				}
 			}
 			else {
 				return false;
 			}
+		}
+		// --------------------------------------------------
+
+		// OBJECT > FILTER
+		// --------------------------------------------------
+		public function filter($filter, $type)
+		{
+			if($filter === 'duplicates')
+			{
+				switch($type)
+				{
+					case Core\Api_Host::OBJECT_TYPE:
+					case Core\Api_Subnet::OBJECT_TYPE:
+					case Core\Api_Network::OBJECT_TYPE: {
+						$key = Shell_Program_Firewall_Object_Address::OBJECT_KEYS[$type];
+						$results = $this->_addressFwProgram->filter($type, Shell_Program_Firewall_Object_Address::FILTER_DUPLICATES);
+						break;
+					}
+					case Core\Api_Rule::OBJECT_TYPE: {
+						$key = Shell_Program_Firewall_Object_Rule::OBJECT_KEYS[$type];
+						$results = $this->_ruleFwProgram->filter($type, Shell_Program_Firewall_Object_Rule::FILTER_DUPLICATES);
+						break;
+					}
+					case Core\Api_Flow::OBJECT_TYPE: {
+						$type = Core\Api_Rule::OBJECT_TYPE;
+						$key = Shell_Program_Firewall_Object_Rule::OBJECT_KEYS[$type];
+						$results = $this->_ruleFwProgram->filterFlow($type, Shell_Program_Firewall_Object_Rule::FILTER_DUPLICATES);
+						break;
+					}
+					default: {
+						return false;
+					}
+				}
+
+				if($key !== false && count($results) > 0)
+				{
+					$items = array();
+					$objects = $this->_objects[$key];
+
+					foreach($results as $objectId => $result)
+					{
+						$item = array();
+
+						foreach($result as $duplicateObjectId) {
+							$item[] = $objects[$duplicateObjectId]->name;
+						}
+
+						$item = implode(', ', $item);
+						$items[] = array($objects[$objectId]->name, $item);
+					}
+
+					$table = C\Tools::formatShellTable($items);
+					$this->_SHELL->print($table, 'grey');
+				}
+				else {
+					$this->_SHELL->print("Aucun résultat n'a été trouvé pour ce filtre '".$filter."'", 'green');
+				}
+
+				return true;
+			}
+
+			return false;
+		}
+
+		public function filterRules($filter, $args)
+		{
+			if($filter === 'duplicates')
+			{
+				if(isset($args[0]))
+				{
+					$key = Shell_Program_Firewall_Object_Rule::OBJECT_KEYS[Core\Api_Rule::OBJECT_TYPE];
+					$results = $this->_ruleFwProgram->filterAttributes(Core\Api_Rule::OBJECT_TYPE, Shell_Program_Firewall_Object_Rule::FILTER_DUPLICATES, $args[0]);
+
+					if($key !== false && count($results) > 0)
+					{
+						$items = array();
+						$objects = $this->_objects[$key];
+
+						foreach($results as $ruleId => $attributes)
+						{
+							$item = array();
+
+							foreach($attributes as $attribute => $counter) {
+								$item[] = $attribute.' {'.$counter.'}';
+							}
+
+							$item = implode(', ', $item);
+							$items[] = array($objects[$ruleId]->name, $item);
+						}
+
+						$table = C\Tools::formatShellTable($items);
+						$this->_SHELL->print($table, 'grey');
+					}
+					else {
+						$this->_SHELL->print("Aucun résultat n'a été trouvé pour ce filtre '".$filter."'", 'green');
+					}
+
+					return true;
+				}
+			}
+
+			return false;
 		}
 		// --------------------------------------------------
 
@@ -693,6 +811,16 @@
 			return $this->_ruleFwProgram->description($args);
 		}
 
+		public function rule_tag($type, array $args)
+		{
+			return $this->_ruleFwProgram->tags($type, $args);
+		}
+
+		public function rule_tags($type, array $args)
+		{
+			return $this->_ruleFwProgram->tags($type, $args);
+		}
+
 		public function rule_check()
 		{
 			return $this->_ruleFwProgram->check();
@@ -723,7 +851,7 @@
 				if($objects !== false)
 				{
 					$this->_RESULTS->append($objects);
-					$this->_SHELL->print('RECHERCHE ('.round($time2-$time1).'s)', 'black', 'white', 'bold');
+					$this->_SHELL->EOL()->print('RECHERCHE ('.round($time2-$time1).'s)', 'black', 'white', 'bold');
 
 					if(!$this->_SHELL->isOneShotCall())
 					{
@@ -743,6 +871,7 @@
 										$host->addressV6
 									);
 								}
+								unset($host);
 
 								$table = C\Tools::formatShellTable($objects['hosts']);
 								$this->_SHELL->print($table, 'grey');
@@ -768,6 +897,7 @@
 										$subnet->subnetV6
 									);
 								}
+								unset($subnet);
 
 								$table = C\Tools::formatShellTable($objects['subnets']);
 								$this->_SHELL->print($table, 'grey');
@@ -792,6 +922,7 @@
 										$network->networkV6
 									);
 								}
+								unset($network);
 
 								$table = C\Tools::formatShellTable($objects['networks']);
 								$this->_SHELL->print($table, 'grey');
@@ -810,21 +941,15 @@
 							{
 								foreach($objects['rules'] as &$rule)
 								{
-									$ruleSummary = array(
-										$rule->name,
-										$rule->category,
-										'Fullmesh: '.$rule->fullmesh,
-										'Status: '.$rule->state,
-										'Action: '.$rule->action,
-										$rule->description,
-									);
+									$ruleBrief = $this->_ruleFwProgram->formatToTable($rule, $this->_LIST_FIELDS, Shell_Program_Firewall_Object_Abstract::VIEW_BRIEF);
+									$ruleBrief = C\Tools::e($ruleBrief, 'green', false, false, true);
 
-									$ruleSummary = C\Tools::formatShellTable(array($ruleSummary), false, false, '/');
-									$ruleSummary = C\Tools::e($ruleSummary, 'green', false, false, true);
-									$ruelAcl = C\Tools::e($rule['acl'], 'blue', false, false, true);
+									$ruleSummary = $this->_ruleFwProgram->formatToObject($rule, $this->_LIST_FIELDS, Shell_Program_Firewall_Object_Abstract::VIEW_SUMMARY);
+									$ruleACL = C\Tools::e($ruleSummary['acl'], 'blue', false, false, true);
 
-									$rule = $ruleSummary.PHP_EOL.$ruelAcl;
+									$rule = $ruleBrief.PHP_EOL.$ruleACL;
 								}
+								unset($rule);
 
 								$this->_SHELL->print(implode(PHP_EOL.PHP_EOL, $objects['rules']), 'grey');
 							}
@@ -855,7 +980,7 @@
 					$hosts = array();
 
 					if($localSearch) {
-						$hosts = $this->_getHostInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, $context);
+						$hosts = $this->_getHostObjects($search, self::SEARCH_FROM_CURRENT_CONTEXT, $context);
 					}
 
 					if($ipamSearch && ($forceIpamSearch || count($hosts) === 0)) {
@@ -871,7 +996,7 @@
 					$subnets = array();
 
 					if($localSearch) {
-						$subnets = $this->_getSubnetInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, $context);
+						$subnets = $this->_getSubnetObjects($search, self::SEARCH_FROM_CURRENT_CONTEXT, $context);
 					}
 
 					if($ipamSearch && ($forceIpamSearch || count($subnets) === 0)) {
@@ -887,7 +1012,7 @@
 					$networks = array();
 
 					if($localSearch) {
-						$networks = $this->_getNetworkInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, $context);
+						$networks = $this->_getNetworkObjects($search, self::SEARCH_FROM_CURRENT_CONTEXT, $context);
 					}
 
 					return array('networks' => $networks);
@@ -898,7 +1023,7 @@
 					$rules = array();
 
 					if($localSearch) {
-						$rules = $this->_getRuleInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, $context);
+						$rules = $this->_getRuleObjects($search, self::SEARCH_FROM_CURRENT_CONTEXT, $context);
 					}
 
 					return array('rules' => $rules);
@@ -914,48 +1039,72 @@
 					break;
 				}
 				default: {
-					throw new Exception("Unknown object type '".$type."'", E_USER_ERROR);
+					$this->_SHELL->error("Unknown object type '".$type."'", 'orange');
+					return array();
 				}
 			}
 		}
 
+		protected function _getSiteObjects($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
+		{
+			return $this->_getItemObjects(Core\Api_Site::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+		}
+
+		protected function _getHostObjects($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
+		{
+			return $this->_getItemObjects(Core\Api_Host::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+		}
+
+		protected function _getSubnetObjects($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
+		{
+			return $this->_getItemObjects(Core\Api_Subnet::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+		}
+
+		protected function _getNetworkObjects($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
+		{
+			return $this->_getItemObjects(Core\Api_Network::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+		}
+
+		protected function _getRuleObjects($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
+		{
+			return $this->_getItemObjects(Core\Api_Rule::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+		}
+
+		protected function _getItemObjects($type, $search, $strictKey = false, $strictMatch = false)
+		{
+			$Shell_Program_Firewall_Object_Abstract = $this->_fwPrograms[$type];
+			return $Shell_Program_Firewall_Object_Abstract->getObjects($type, $search, $strictKey, $strictMatch);
+		}
+
 		protected function _getSiteInfos($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
 		{
-			return $this->_getObjectInfos(Core\Api_Site::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+			return $this->_getItemInfos(Core\Api_Site::OBJECT_TYPE, $search, $strictKey, $strictMatch);
 		}
 
 		protected function _getHostInfos($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
 		{
-			return $this->_getObjectInfos(Core\Api_Host::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+			return $this->_getItemInfos(Core\Api_Host::OBJECT_TYPE, $search, $strictKey, $strictMatch);
 		}
 
 		protected function _getSubnetInfos($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
 		{
-			return $this->_getObjectInfos(Core\Api_Subnet::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+			return $this->_getItemInfos(Core\Api_Subnet::OBJECT_TYPE, $search, $strictKey, $strictMatch);
 		}
 
 		protected function _getNetworkInfos($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
 		{
-			return $this->_getObjectInfos(Core\Api_Network::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+			return $this->_getItemInfos(Core\Api_Network::OBJECT_TYPE, $search, $strictKey, $strictMatch);
 		}
 
 		protected function _getRuleInfos($search, $fromCurrentContext = true, $context = null, $strictKey = false, $strictMatch = false)
 		{
-			return $this->_getObjectInfos(Core\Api_Rule::OBJECT_TYPE, $search, $strictKey, $strictMatch);
+			return $this->_getItemInfos(Core\Api_Rule::OBJECT_TYPE, $search, $strictKey, $strictMatch);
 		}
 
-		protected function _getObjectInfos($type, $search, $strictKey = false, $strictMatch = false)
+		protected function _getItemInfos($type, $search, $strictKey = false, $strictMatch = false)
 		{
-			$result = array();
-
-			$Shell_Program_Firewall_Object_Abstract = $this->_fwPrograms[$type];
-			$objects = $Shell_Program_Firewall_Object_Abstract->getObjects($type, $search, $strictKey, $strictMatch);
-
-			foreach($objects as &$object) {
-				$object = $Shell_Program_Firewall_Object_Abstract->format($object, $this->_LIST_FIELDS);
-			}
-
-			return $objects;
+			$objects = $this->_getItemObjects($type, $search, $strictKey, $strictMatch);
+			return $this->_formatObjects($type, $objects, Shell_Program_Firewall_Object_Abstract::VIEW_EXTENSIVE);
 		}
 		// --------------------------------------------------
 
@@ -966,80 +1115,117 @@
 			$args = array('.', $type, $search);
 			return $this->printSearchObjects($args, true, false, false);
 		}
-
-		public function filter($filter, $type)
-		{
-			if($filter === 'duplicates')
-			{
-				switch($type)
-				{
-					case Core\Api_Host::OBJECT_TYPE:
-					case Core\Api_Subnet::OBJECT_TYPE:
-					case Core\Api_Network::OBJECT_TYPE: {
-						$key = Shell_Program_Firewall_Object_Address::OBJECT_KEYS[$type];
-						$results = $this->_addressFwProgram->filter($type, Shell_Program_Firewall_Object_Address::FILTER_DUPLICATES);
-						break;
-					}
-					case Core\Api_Rule::OBJECT_TYPE: {
-						$key = Shell_Program_Firewall_Object_Rule::OBJECT_KEYS[$type];
-						$results = $this->_ruleFwProgram->filter($type, Shell_Program_Firewall_Object_Rule::FILTER_DUPLICATES);
-						break;
-					}
-					default: {
-						$key = false;
-						$results = array();
-					}
-				}
-
-				if($key !== false && count($results) > 0)
-				{
-					$items = array();
-					$objects = $this->_objects[$key];
-
-					foreach($results as $objectId => $result)
-					{
-						$item = array();
-
-						foreach($result as $duplicateObjectId) {
-							$item[] = $objects[$duplicateObjectId]->name;
-						}
-
-						$item = implode(', ', $item);
-						$items[] = array($objects[$objectId]->name, $item);
-					}
-
-					$table = C\Tools::formatShellTable($items);
-					$this->_SHELL->print($table, 'grey');
-				}
-				else {
-					$this->_SHELL->print("Aucun résultat n'a été trouvé pour ce filtre '".$filter."'", 'green');
-				}
-
-				return true;
-			}
-
-			return false;
-		}
 		// --------------------------------------------------
 
 		// IPAM
 		// --------------------------------------------------
+		/**
+		  * Pour la recherche IPAM, ne pas regrouper les objets de même nom afin d'avoir IPv4 et IPv6 joints
+		  * Cela permet d'avoir une visibilité "large" pour l'utilisateur et de se rendre compte de doublons ou autres incohérences
+		  */
 		public function ipamSearch($type, $search)
 		{
-			$args = array('.', $type, $search);
-			return $this->printSearchObjects($args, false, true, true);
+			$time1 = microtime(true);
+			$objects = $this->_searchObjects('.', $type, $search, false, true, true);
+			$time2 = microtime(true);
+
+			if($objects !== false)
+			{
+				$this->_RESULTS->append($objects);
+				$this->_SHELL->EOL()->print('RECHERCHE ('.round($time2-$time1).'s)', 'black', 'white', 'bold');
+
+				if(!$this->_SHELL->isOneShotCall())
+				{
+					if(isset($objects['hosts']))
+					{
+						$counter = count($objects['hosts']);
+						$this->_SHELL->EOL()->print('HOSTS ('.$counter.')', 'black', 'white');
+
+						if($counter > 0)
+						{
+							$this->_SHELL->displayWaitingMsg(true, false, 'Searching attributes from IPAM');
+
+							foreach($objects['hosts'] as &$host)
+							{
+								$host = $host[$this->_ipamFwProgram::FIELD_IPAM_ATTRS];
+								$Ipam_Api_Address = new Ipam\Api_Address($host[Ipam\Api_Address::FIELD_ID]);
+
+								if(($Ipam_Api_Subnet = $Ipam_Api_Address->subnetApi) !== false) {
+									$subnetPath = $Ipam_Api_Subnet->getPath(true);
+								}
+								else {
+									$subnetPath = '';
+								}
+
+								$host = array(
+									$subnetPath,
+									$Ipam_Api_Address->getLabel(),
+									$Ipam_Api_Address->getDescription(),
+									$Ipam_Api_Address->getAddress()
+								);
+							}
+							unset($host);
+
+							$this->_SHELL->deleteWaitingMsg(true);
+							$table = C\Tools::formatShellTable($objects['hosts']);
+							$this->_SHELL->print($table, 'grey');
+						}
+						else {
+							$this->_SHELL->error('Aucun résultat', 'orange');
+						}
+					}
+
+					if(isset($objects['subnets']))
+					{
+						$counter = count($objects['subnets']);
+						$this->_SHELL->EOL()->print('SUBNETS ('.$counter.')', 'black', 'white');
+
+						if($counter > 0)
+						{
+							$this->_SHELL->displayWaitingMsg(true, false, 'Searching attributes from IPAM');
+
+							foreach($objects['subnets'] as &$subnet)
+							{
+								$subnet = $subnet[$this->_ipamFwProgram::FIELD_IPAM_ATTRS];
+								$Ipam_Api_Subnet = new Ipam\Api_Subnet($subnet[Ipam\Api_Subnet::FIELD_ID]);
+
+								$subnet = array(
+									$Ipam_Api_Subnet->getPath(),
+									$Ipam_Api_Subnet->getLabel(),
+									$Ipam_Api_Subnet->getCidrSubnet()
+								);
+							}
+							unset($subnet);
+
+							$this->_SHELL->deleteWaitingMsg(true);
+							$table = C\Tools::formatShellTable($objects['subnets']);
+							$this->_SHELL->print($table, 'grey');
+						}
+						else {
+							$this->_SHELL->error('Aucun résultat', 'orange');
+						}
+					}
+
+					$this->_SHELL->EOL();
+				}
+			}
+			else {
+				$this->_SHELL->error("Aucun résultat trouvé", 'orange');
+			}
+
+			return true;
 		}
 
 		public function ipamImport($type, $search)
 		{
 			try {
-				$Core_Api_Abstract = $this->_addressFwProgram->autoCreateObject($type, $search);
+				$Core_Api_Abstract = $this->_addressFwProgram->autoCreateObject($type, $search, false, false);
 			}
-			catch(E\Message $e) {		// Core\Exception\Message
+			catch(E\Message $e) {
 				$this->_SHELL->throw($e);
 				$Core_Api_Abstract = false;
 			}
-			catch(Exception $e) {		// App\Firewall\Exception
+			catch(\Exception $e) {
 				$this->_SHELL->error("Une exception s'est produite durant l'importation des objets de type '".$type."':", 'orange');
 				$this->_SHELL->error($e->getMessage(), 'orange');
 				$Core_Api_Abstract = false;
@@ -1075,6 +1261,74 @@
 		public function load(array $args)
 		{
 			return $this->_configFwProgram->load($args);
+		}
+
+		public function run(array $args)
+		{
+			if(isset($args[0]))
+			{
+				$filename = C\Tools::filename($args[0]);
+
+				if(file_exists($filename))
+				{
+					if(is_readable($filename))
+					{
+						$SplFileObject = new SplFileObject($filename, 'r');
+						$SplFileObject->setFlags(SplFileObject::DROP_NEW_LINE);
+
+						foreach($SplFileObject as $line => $cmd)
+						{
+							if(is_string($cmd) && $cmd !== '')
+							{
+								$cmd = trim($cmd, " \t");
+
+								ob_start();
+
+								try {
+									$status = $this->_SHELL->executeCmdCall($cmd);
+								}
+								catch(\Exception $e) {
+									$status = false;
+								}
+
+								$buffer = ob_get_clean();
+								$this->_SHELL->print($cmd, 'blue');
+
+								if($status) {
+									$this->_SHELL->echo(" [OK]", 'green');
+									$this->_SHELL->print($buffer, 'green');
+								}
+								else
+								{
+									$this->_SHELL->echo(" [KO]", 'red');
+
+									if($buffer !== false) {
+										$this->_SHELL->print($buffer, 'orange');
+									}
+
+									$this->_SHELL->EOL()->error("An error is occured at line ".($line+1)." of '".$filename."'", 'orange');
+									
+									if(isset($e)) {
+										throw $e;
+									}
+
+									break;
+								}
+							}
+						}
+					}
+					else {
+						$this->_SHELL->error("File '".$filename."' is not readable", 'orange');
+					}
+				}
+				else {
+					$this->_SHELL->error("File '".$filename."' does not exist", 'orange');
+				}
+
+				return true;
+			}
+
+			return false;
 		}
 
 		public function save(array $args)
@@ -1155,19 +1409,10 @@
 			}
 		}
 
-		protected function _getObjects($context = null)
+		protected function _getObjects($context = null, array $args = null)
 		{
-			$sites = array();
-
-			foreach($this->_sites as $site) {
-				$sites[] = $this->_siteFwProgram->format($site, $this->_LIST_FIELDS);
-			}
-
-			$rules = array();
-
-			foreach($this->_rules as $rule) {
-				$rules[] = $this->_ruleFwProgram->format($rule, $this->_LIST_FIELDS);
-			}
+			$sites = $this->_formatObjects(Core\Api_Site::OBJECT_TYPE, $this->_sites, Shell_Program_Firewall_Object_Abstract::VIEW_BRIEF);
+			$rules = $this->_formatObjects(Core\Api_Rule::OBJECT_TYPE, $this->_rules, Shell_Program_Firewall_Object_Abstract::VIEW_BRIEF);
 
 			return array(
 				'site' => $sites,
@@ -1177,9 +1422,52 @@
 				'rule' => $rules
 			);
 		}
+
+		protected function _formatObjects($type, array $objects, $view)
+		{
+			$objectsF = array();
+
+			switch($type)
+			{
+				case Core\Api_Host::OBJECT_TYPE:
+				case Core\Api_Subnet::OBJECT_TYPE:
+				case Core\Api_Network::OBJECT_TYPE:
+				{
+					foreach($objects as $address) {
+						$objectsF[] = $this->_addressFwProgram->format($address, $this->_LIST_FIELDS, $view);
+					}
+					break;
+				}
+				case Core\Api_Site::OBJECT_TYPE:
+				{
+					foreach($objects as $site) {
+						$objectsF[] = $this->_siteFwProgram->format($site, $this->_LIST_FIELDS, $view);
+					}
+					break;
+				}
+				case Core\Api_Rule::OBJECT_TYPE:
+				{
+					foreach($objects as $rule) {
+						$objectsF[] = $this->_ruleFwProgram->format($rule, $this->_LIST_FIELDS, $view);
+					}
+					break;
+				}
+				default: {
+					$objectsF = $objects;
+				}
+			}
+
+			return $objectsF;
+		}
 		// --------------------------------------------------
 
 		// ----------------- AutoCompletion -----------------
+		public function shellAutoC_load($cmd, $search = null)
+		{
+			$cwd = $this->_CONFIG->FIREWALL->configuration->paths->configs;
+			return $this->shellAutoC_filesystem($cmd, $search, $cwd);
+		}
+
 		/**
 		  * For false search, that is bad arg, return default values or nothing
 		  * For null search, that is no arg (space), return default values
@@ -1214,7 +1502,7 @@
 					$cmdParts = explode(' ', $cmd);
 					$object = end($cmdParts);
 
-					$fieldToReturn = 'name';
+					$searchIsValidAddress = false;
 
 					/**
 					  * @todo
@@ -1231,12 +1519,17 @@
 					switch($object)
 					{
 						case Core\Api_Host::OBJECT_TYPE:
-						{				
+						{
 							if(Core\Tools::isIPv4($search)) {
 								$fieldToReturn = Core\Api_Host::FIELD_ATTRv4;
+								$searchIsValidAddress = true;
 							}
 							elseif(Core\Tools::isIPv6($search)) {
 								$fieldToReturn = Core\Api_Host::FIELD_ATTRv6;
+								$searchIsValidAddress = true;
+							}
+							else {
+								$fieldToReturn = Core\Api_Host::FIELD_NAME;
 							}
 
 							$items = $this->_getHostInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, null, false, true);
@@ -1246,7 +1539,7 @@
 								try {
 									$ipamAddresses = $this->_ipamFwProgram->getAddresses($search, false);
 								}
-								catch(Exception $e) {
+								catch(\Exception $e) {
 									$this->_SHELL->error("[AC] L'erreur suivante s'est produite: ".$e->getMessage(), 'orange');
 									$ipamAddresses = array();
 								}
@@ -1259,9 +1552,14 @@
 						{
 							if(Core\Tools::isSubnetV4($search)) {
 								$fieldToReturn = Core\Api_Subnet::FIELD_ATTRv4;
+								$searchIsValidAddress = true;
 							}
 							elseif(Core\Tools::isSubnetV6($search)) {
 								$fieldToReturn = Core\Api_Subnet::FIELD_ATTRv6;
+								$searchIsValidAddress = true;
+							}
+							else {
+								$fieldToReturn = Core\Api_Subnet::FIELD_NAME;
 							}
 
 							$items = $this->_getSubnetInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, null, false, true);
@@ -1271,7 +1569,7 @@
 								try {
 									$ipamSubnets = $this->_ipamFwProgram->getSubnets($search, false);
 								}
-								catch(Exception $e) {
+								catch(\Exception $e) {
 									$this->_SHELL->error("[AC] L'erreur suivante s'est produite: ".$e->getMessage(), 'orange');
 									$ipamSubnets = array();
 								}
@@ -1284,9 +1582,14 @@
 						{
 							if(Core\Tools::isNetworkV4($search, Core\Api_Network::SEPARATOR)) {
 								$fieldToReturn = Core\Api_Network::FIELD_ATTRv4;
+								$searchIsValidAddress = true;
 							}
 							elseif(Core\Tools::isNetworkV6($search, Core\Api_Network::SEPARATOR)) {
 								$fieldToReturn = Core\Api_Network::FIELD_ATTRv6;
+								$searchIsValidAddress = true;
+							}
+							else {
+								$fieldToReturn = Core\Api_Network::FIELD_NAME;
 							}
 
 							$items = $this->_getNetworkInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, null, false, true);
@@ -1301,8 +1604,29 @@
 					{
 						$options = array();
 
-						foreach($items as $item) {
-							$options[$item[$fieldToReturn]] = $item['name'];
+						if(count($items) > 0)
+						{
+							foreach($items as $item) {
+								$options[$item[$fieldToReturn]] = $item['name'];
+							}
+						}
+						elseif($searchIsValidAddress)
+						{
+							/**
+							  * Ne pas créer automatiquement l'objet avec getAutoNamingAddress ou autoCreateObject
+							  * sinon si l'utilisateur ne valide pas la commande alors l'objet aura été créé pour rien
+							  */
+							$options[$search] = $search;
+
+							/*if(($addressName = $this->_addressFwProgram->getAutoNamingAddress($search)) !== false)
+							{
+								$args = array($addressName, $search);
+								$status = $this->_addressFwProgram->create($object, $args);
+
+								if($status) {
+									$options[$search] = $addressName;
+								}
+							}*/
 						}
 
 						$Core_StatusValue->setStatus(true);

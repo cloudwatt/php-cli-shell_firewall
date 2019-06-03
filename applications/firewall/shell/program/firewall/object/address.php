@@ -12,6 +12,8 @@
 
 	class Shell_Program_Firewall_Object_Address extends Shell_Program_Firewall_Object_Abstract
 	{
+		const OBJECT_NAME = 'address';
+
 		const OBJECT_IDS = array(
 			Core\Api_Host::OBJECT_TYPE,
 			Core\Api_Subnet::OBJECT_TYPE,
@@ -43,150 +45,29 @@
 			$this->_ipamFwProgram = new Shell_Program_Firewall_Ipam();
 		}
 
-		protected function _getAddress($type, $name)
-		{
-			return $this->_getObject($type, $name);
-		}
-
-		public function locate($type, $search, $strict = false)
+		public function insert($type, $name)
 		{
 			if($this->_typeIsAllowed($type))
 			{
-				$objectName = $this->typeToName($type, true);
+				$name = preg_replace('#(^\s+)|(\s+$)#i', '', $name);
 
-				$Core_Api_Address = $this->getObject($type, $search, false, true);
-
-				if($Core_Api_Address !== false)
+				if(C\Tools::is('string&&!empty', $name))
 				{
-					$results = array();
-					$rules = $this->_objects[Core\Api_Rule::OBJECT_KEY];
+					$class = $this->_typeToClass($type);
+					$objectName = ucfirst($class::OBJECT_NAME);
 
-					foreach($rules as $ruleId => $rule)
-					{
-						$isInUse = $rule->isInUse($Core_Api_Address, $strict);
-
-						if($isInUse) {
-							$results[$ruleId] = $rule;
-						}
-					}
-
-					if(count($results) > 0) {
-						return $results;
+					if(!$this->objectExists($type, $name, true)) {
+						$Core_Api_Address = new $class($name, $name);
+						$this->_register($Core_Api_Address);
+						return $Core_Api_Address;
 					}
 					else {
-						$this->_SHELL->print("Aucune règle ne semble correspondre à cet ".$objectName, 'green');
+						throw new E\Message("Un ".$objectName." avec le même nom existe déjà", E_USER_WARNING);
 					}
 				}
-				else {
-					$this->_SHELL->error("L'objet ".$objectName." '".$search."' n'existe pas, impossible de réaliser la recherche", 'orange');
-				}
-
-				return true;
-			}
-			else {
-				return false;
-			}
-		}
-
-		public function refresh($type, array $args)
-		{
-			if(isset($args[0]))
-			{
-				$name = $args[0];
-
-				if(($Core_Api_Address = $this->_getAddress($type, $name)) !== false)
-				{
-					$objectName = ucfirst($Core_Api_Address::OBJECT_NAME);
-
-					try {
-						$results = $this->_ipamFwProgram->getObjects($type, $name, true, false);
-					}
-					catch(Exception $e) {
-						$this->_SHELL->error("L'erreur suivante s'est produite: ".$e->getMessage(), 'orange');
-						$results = array();
-					}
-
-					switch(count($results))
-					{
-						case 0: {
-							$this->_SHELL->error($objectName." '".$name."' introuvable dans l'IPAM", 'orange');
-							break;
-						}
-						case 1:
-						case 2:
-						{
-							$callable = array($Core_Api_Address, $Core_Api_Address::FIELD_ATTR_FCT);
-
-							foreach($results as $result)
-							{
-								if($result[$Core_Api_Address::FIELD_NAME] === $name)	// Sécurité
-								{
-									foreach(array(4, 6) as $IPv)
-									{
-										$class = get_class($Core_Api_Address);
-										$field = constant($class.'::FIELD_ATTRv'.$IPv);
-
-										$attribute = $result[$field];
-
-										if($attribute !== null)
-										{
-											if($attribute !== $Core_Api_Address->{$field})
-											{
-												$status = call_user_func($callable, $attribute);
-
-												if($status) {
-													$this->_SHELL->print($objectName." '".$name."' a été mis à jour: '".$attribute."'", 'green');
-												}
-												else {
-													$this->_SHELL->print($objectName." '".$name."' n'a pas pu être mis à jour: '".$attribute."'", 'orange');
-												}
-											}
-											else {
-												$this->_SHELL->print($objectName." '".$name."' est déjà à jour pour '".$attribute."'", 'green');
-											}
-										}
-										else {
-											$this->_SHELL->print($objectName." '".$name."' ne possède pas d'adresse IPv".$IPv." dans l'IPAM", 'orange');
-										}
-									}
-								}
-							}
-
-							break;
-						}
-						default: {
-							$this->_SHELL->error($objectName." '".$name."' est présent plus de 2 fois dans l'IPAM", 'orange');
-						}
-					}
-				}
-				else {
-					$objectName = $this->typeToName($type, true);
-					$this->_SHELL->error($objectName." '".$name."' n'existe pas localement", 'orange');
-				}
-
-				return true;
 			}
 
 			return false;
-		}
-
-		public function refreshAll($type)
-		{
-			$key = $this->_typeToKey($type);
-
-			if($key !== false)
-			{
-				$objects = $this->_objects[$key];
-
-				foreach($objects as $Core_Api_Address) {
-					$this->refresh($type, array($Core_Api_Address->name));
-				}
-
-				return true;
-			}
-			else {
-				return false;
-			}
 		}
 
 		public function create($type, array $args)
@@ -196,35 +77,46 @@
 				if(isset($args[0]) && isset($args[1]))
 				{
 					$name = $args[0];
-					$name = preg_replace('#(^\s+)|(\s+$)#i', '', $name);
+					$attr0 = $args[1];
+					$attr1 = (isset($args[2])) ? ($args[2]) : (null);
 
-					if(C\Tools::is('string&&!empty', $name))
+					try {
+						$Core_Api_Address = $this->insert($type, $name);
+					}
+					catch(\Exception $e) {
+						$this->_SHELL->throw($e);
+						$Core_Api_Address = null;
+					}
+
+					if($Core_Api_Address instanceof Core\Api_Address)
 					{
-						$attr0 = $args[1];
-						$attr1 = (isset($args[2])) ? ($args[2]) : (null);
+						$objectName = ucfirst($Core_Api_Address::OBJECT_NAME);
 
-						$class = $this->_typeToClass($type);
-						$objectName = ucfirst($class::OBJECT_NAME);
+						$status0 = $Core_Api_Address->configure($attr0);
 
-						if(!$this->objectExists($type, $name, true))
-						{
-							$Core_Api_Address = new $class($name, $attr0, $attr1);
-							$isValid = $Core_Api_Address->isValid();
-
-							if($isValid) {
-								$this->_register($Core_Api_Address);
-								$this->_SHELL->print($objectName." '".$name."' créé", 'green');
-							}
-							else {
-								$this->_SHELL->error($objectName." '".$name."' invalide", 'red');
-							}
+						if($attr1 !== null) {
+							$status1 = $Core_Api_Address->configure($attr1);
 						}
 						else {
-							$this->_SHELL->error("Un ".$objectName." avec le même nom existe déjà", 'orange');
+							$status1 = true;
 						}
 
-						return true;
+						$isValid = $Core_Api_Address->isValid();
+
+						if($status0 && $status1 && $isValid) {
+							$this->_SHELL->print($objectName." '".$Core_Api_Address->name."' créé", 'green');
+						}
+						else {
+							$this->_unregister($Core_Api_Address);
+							$this->_SHELL->error($objectName." '".$Core_Api_Address->name."' invalide", 'red');
+						}
 					}
+					elseif($Core_Api_Address === false) {			// Evite d'afficher ce message si une exception s'est produite
+						$objectName = $this->getName($type);
+						$this->_SHELL->error("Une erreur s'est produite durant la création d'un objet '".$objectName."'", 'orange');
+					}
+
+					return true;
 				}
 			}
 
@@ -239,32 +131,59 @@
 				$attr0 = $args[1];
 				$attr1 = (isset($args[2])) ? ($args[2]) : (null);
 
-				if(($Core_Api_Address = $this->_getAddress($type, $name)) !== false)
+				if(($Core_Api_Address = $this->getObject($type, $name)) !== false)
 				{
 					$objectName = ucfirst($Core_Api_Address::OBJECT_NAME);
 
-					if($attr1 === null) {
-						$Core_Api_Address->reset($Core_Api_Address::FIELD_ATTRv4);
-						$Core_Api_Address->reset($Core_Api_Address::FIELD_ATTRv6);
-					}
+					$oldAttrV4 = $Core_Api_Address->attributeV4;
+					$oldAttrV6 = $Core_Api_Address->attributeV6;
 
-					$status_0 = call_user_func(array($Core_Api_Address, $Core_Api_Address::FIELD_ATTR_FCT), $attr0);
-					$status_1 = call_user_func(array($Core_Api_Address, $Core_Api_Address::FIELD_ATTR_FCT), $attr1);
+					$Core_Api_Address->reset($Core_Api_Address::FIELD_ATTRv4);
+					$Core_Api_Address->reset($Core_Api_Address::FIELD_ATTRv6);
+
+					$status_0 = $Core_Api_Address->configure($attr0);
+					$status_1 = $Core_Api_Address->configure($attr1);
 					$isValid = $Core_Api_Address->isValid();
 
-					if(($status_0 || $status_1) && $isValid) {
+					$status = ($status_0 && ($attr1 === null || $status_1) && $isValid);
+
+					if($status)
+					{
+						$rules = $this->_objects[Core\Api_Rule::OBJECT_KEY];
+
+						foreach($rules as $Core_Api_Rule)
+						{
+							$isPresent = $Core_Api_Rule->addressIsPresent($Core_Api_Address);
+
+							if($isPresent)
+							{
+								try {
+									$Core_Api_Rule->checkOverlapAddress();
+								}
+								catch(E\Message $e) {
+									$this->_SHELL->error("RULE '".$Core_Api_Rule->name."': ".$e->getMessage(), 'orange');
+								}
+
+								/**
+								  * Afficher seulement une alerte car les objets adresse sont différents mais l'adressage lui est identique
+								  */
+								if(($Core_Api_Address__like = $Core_Api_Rule->getAddressIsInUse($Core_Api_Address, true, $Core_Api_Address)) !== false) {
+									$message = $Core_Api_Address__like::OBJECT_NAME." '".$Core_Api_Address__like->name."' possède un adressage identique";
+									$this->_SHELL->error("RULE '".$Core_Api_Rule->name."': ".$message, 'red');
+								}
+							}
+						}
+
 						$this->_SHELL->print($objectName." '".$name."' modifié", 'green');
 					}
-					elseif($isValid) {
-						$this->_SHELL->print($objectName." '".$name."' n'a pas pu être mis à jour", 'orange');
-					}
 					else {
-						$this->_unregister($Core_Api_Address);
-						$this->_SHELL->error($objectName." '".$name."' invalide", 'red');
+						$Core_Api_Address->configure($oldAttrV4);
+						$Core_Api_Address->configure($oldAttrV6);
+						$this->_SHELL->print($objectName." '".$name."' n'a pas pu être mis à jour", 'orange');
 					}
 				}
 				else {
-					$objectName = $this->typeToName($type, true);
+					$objectName = $this->getName($type, true);
 					$this->_SHELL->error($objectName." '".$name."' introuvable", 'orange');
 				}
 
@@ -286,36 +205,65 @@
 
 				if(C\Tools::is('string&&!empty', $name) && C\Tools::is('string&&!empty', $newName))
 				{
-					if(($Core_Api_Address = $this->_getAddress($type, $name)) !== false)
+					if($name !== $newName)
 					{
-						$objectName = ucfirst($Core_Api_Address::OBJECT_NAME);
-
-						if(!$this->objectExists($type, $newName, true))
+						if(($Core_Api_Address = $this->getObject($type, $name)) !== false)
 						{
-							$this->_unregister($Core_Api_Address);
-							$Core_Api_Address->name($newName);
-							$this->_register($Core_Api_Address);
+							$objectName = ucfirst($Core_Api_Address::OBJECT_NAME);
+							$Core_Api_Address__new = $this->getObject($type, $newName, true);
 
-							$rules = $this->_objects[Core\Api_Rule::OBJECT_KEY];
-
-							foreach($rules as $ruleId => $rule)
+							/**
+							  * Si une adresse de même type avec le nouveau nom n'existe pas OU
+							  * Si la même adresse correspond au nouveau nom: changement de case
+							  */
+							if($Core_Api_Address__new === false || $Core_Api_Address__new->_id_ === $Core_Api_Address->_id_)
 							{
-								$isInUse = $rule->isInUse($Core_Api_Address);
+								$unregisterStatus = $this->_unregister($Core_Api_Address);
 
-								if($isInUse) {
-									$rule->refresh();
+								if($unregisterStatus)
+								{
+									$renameIdStatus = $Core_Api_Address->id($newName);
+									$renameNameStatus = $Core_Api_Address->name($newName);
+									$registerStatus = $this->_register($Core_Api_Address);
+
+									if($renameIdStatus && $renameNameStatus && $registerStatus)
+									{
+										$rules = $this->_objects[Core\Api_Rule::OBJECT_KEY];
+
+										foreach($rules as $Core_Api_Rule)
+										{
+											$isPresent = $Core_Api_Rule->addressIsPresent($Core_Api_Address);
+
+											if($isPresent) {
+												$Core_Api_Rule->refresh();
+											}
+										}
+
+										$this->_SHELL->print($objectName." '".$name."' renommé en '".$newName."'", 'green');
+									}
+									elseif(!$registerStatus) {		// /!\ Plus important que le renommage
+										throw new Exception($objectName." '".$newName."' semble avoir été perdu", E_ERROR);		// Critical: do not use E\Message and E_USER_ERROR
+									}
+									else {
+										throw new Exception($objectName." '".$newName."' n'a pas pu être renommé", E_ERROR);	// Critical: do not use E\Message and E_USER_ERROR
+									}
+								}
+								else {
+									throw new Exception($objectName." '".$newName."' semble être verrouillé", E_ERROR);			// Critical: do not use E\Message and E_USER_ERROR
 								}
 							}
-
-							$this->_SHELL->print($objectName." '".$name."' renommé en '".$newName."'", 'green');
+							else {
+								$this->_SHELL->error($objectName." '".$newName."' existe déjà", 'orange');
+							}
 						}
 						else {
-							$this->_SHELL->error($objectName." '".$newName."' existe déjà", 'orange');
+							$objectName = $this->getName($type, true);
+							$this->_SHELL->error($objectName." '".$name."' n'existe pas", 'orange');
 						}
 					}
 					else {
-						$objectName = $this->typeToName($type, true);
-						$this->_SHELL->error($objectName." '".$name."' introuvable", 'orange');
+						$objectName = $this->getName($type, true);
+						$this->_SHELL->print($objectName." '".$name."' est déjà correctement nommé", 'blue');
 					}
 
 					return true;
@@ -331,14 +279,14 @@
 			{
 				$name = $args[0];
 
-				if(($Core_Api_Address = $this->_getAddress($type, $name)) !== false)
+				if(($Core_Api_Address = $this->getObject($type, $name)) !== false)
 				{
 					$rules = $this->_objects[Core\Api_Rule::OBJECT_KEY];
 
-					foreach($rules as $ruleObject)
+					foreach($rules as $Core_Api_Rule)
 					{
-						if($ruleObject->isPresent($Core_Api_Address)) {
-							$this->_SHELL->error("Rule '".$ruleObject->name."' utilise cet object", 'orange');
+						if($Core_Api_Rule->isPresent($Core_Api_Address)) {
+							$this->_SHELL->error("Rule '".$Core_Api_Rule->name."' utilise cet object", 'orange');
 							$isUsed = true;
 							break;
 						}
@@ -351,7 +299,7 @@
 					}
 				}
 				else {
-					$objectName = $this->typeToName($type, true);
+					$objectName = $this->getName($type, true);
 					$this->_SHELL->error($objectName." '".$name."' introuvable", 'orange');
 				}
 
@@ -361,7 +309,47 @@
 			return false;
 		}
 
-		public function filter($type, $filter)
+		public function locate($type, $search, $strict = false)
+		{
+			if($this->_typeIsAllowed($type))
+			{
+				$objectName = $this->getName($type, true);
+
+				$Core_Api_Address = $this->getObject($type, $search, false, true);
+
+				if($Core_Api_Address !== false)
+				{
+					$results = array();
+					$rules = $this->_objects[Core\Api_Rule::OBJECT_KEY];
+
+					foreach($rules as $ruleId => $rule)
+					{
+						$isInUse = $rule->isInUse($Core_Api_Address, $strict);
+
+						if($isInUse) {
+							$results[$ruleId] = $rule;
+						}
+					}
+
+					if(count($results) > 0) {
+						return $results;
+					}
+					else {
+						$this->_SHELL->print("Aucune règle ne semble correspondre à cet objet ".$objectName, 'green');
+					}
+				}
+				else {
+					$this->_SHELL->error("L'objet ".$objectName." '".$search."' n'existe pas, impossible de réaliser la recherche", 'orange');
+				}
+
+				return true;
+			}
+			else {
+				return false;
+			}
+		}
+
+		public function filter($type, $filter, $strict = false)
 		{
 			if($filter === self::FILTER_DUPLICATES)
 			{
@@ -407,6 +395,172 @@
 			}
 		}
 
+		public function refresh($type, array $args)
+		{
+			if(isset($args[0]))
+			{
+				$name = $args[0];
+				$objectName = $this->getName($type, true);
+
+				if(($Core_Api_Address = $this->getObject($type, $name)) !== false)
+				{
+					$status = false;
+					$name = $Core_Api_Address->name;
+					$objectName = ucfirst($Core_Api_Address::OBJECT_NAME);
+
+					try {
+						$status = $this->_refresh($type, $Core_Api_Address);
+					}
+					catch(E\Message $e) {
+						$this->_SHELL->throw($e);
+					}
+					catch(\Exception $e) {
+						$this->_SHELL->error("L'erreur suivante s'est produite: ".$e->getMessage(), 'orange');
+					}
+
+					if($status === false) {
+						$this->_SHELL->print($objectName." '".$name."' n'a pas pu être actualisé", 'orange');
+					}
+				}
+				else {
+					$this->_SHELL->error($objectName." '".$name."' n'existe pas localement", 'orange');
+				}
+
+				return true;
+			}
+			else {
+				return false;
+			}
+		}
+
+		public function refreshAll($type)
+		{
+			$key = $this->_typeToKey($type);
+
+			if($key !== false)
+			{
+				$objects = $this->_objects[$key];
+
+				foreach($objects as $Core_Api_Address)
+				{
+					$status = null;
+					$name = $Core_Api_Address->name;
+					$objectName = ucfirst($Core_Api_Address::OBJECT_NAME);
+
+					try {
+						$status = $this->_refresh($type, $Core_Api_Address);
+					}
+					catch(E\Message $e) {
+						$this->_SHELL->throw($e);
+					}
+					catch(\Exception $e) {
+						$this->_SHELL->error("L'erreur suivante s'est produite: ".$e->getMessage(), 'orange');
+					}
+
+					if($status === false) {
+						$this->_SHELL->print($objectName." '".$name."' n'a pas pu être actualisé", 'orange');
+					}
+				}
+
+				return true;
+			}
+			else {
+				return false;
+			}
+		}
+
+		protected function _refresh($type, Core\Api_Address $addressApi)
+		{
+			$name = $addressApi->name;
+			$Core_Api_Address__clone = clone $addressApi;
+			$objectName = ucfirst($addressApi::OBJECT_NAME);
+
+			$Core_Api_Address__ipam = $this->getIpamObjectApi($type, $name, true);
+
+			if($Core_Api_Address__ipam === null) {
+				throw new E\Message($objectName." '".$name."' introuvable dans l'IPAM", E_USER_WARNING);
+			}
+			elseif($Core_Api_Address__ipam === false) {
+				throw new E\Message($objectName." '".$name."' est présent plus de 2 fois dans l'IPAM", E_USER_ERROR);
+			}
+			else
+			{
+				if($Core_Api_Address__ipam->name === $name)	// Sécurité
+				{
+					$IPvStatus = array(4 => null, 6 => null);
+					$rules = $this->_objects[Core\Api_Rule::OBJECT_KEY];
+
+					foreach($addressApi::FIELD_ATTRS as $IPv => $attribute)
+					{
+						$ipamAttribute = $Core_Api_Address__ipam->{$attribute};
+
+						if($ipamAttribute !== null)
+						{
+							if($ipamAttribute !== $addressApi->{$attribute})
+							{
+								$addressApi->configure($ipamAttribute);
+								$IPvStatus[$IPv] = true;
+
+								foreach($rules as $Core_Api_Rule)
+								{
+									$isPresent = $Core_Api_Rule->addressIsPresent($addressApi);
+
+									if($isPresent)
+									{
+										try {
+											$Core_Api_Rule->checkOverlapAddress();
+										}
+										catch(E\Message $e) {
+											$this->_SHELL->error("RULE '".$Core_Api_Rule->name."': ".$e->getMessage(), 'orange');
+										}
+
+										/**
+										  * Afficher seulement une alerte car les objets adresse sont différents mais l'adressage lui est identique
+										  */
+										if(($Core_Api_Address = $Core_Api_Rule->getAddressIsInUse($addressApi, true, $addressApi)) !== false) {
+											$message = $Core_Api_Address::OBJECT_NAME." '".$Core_Api_Address->name."' possède un adressage identique";
+											$this->_SHELL->error("RULE '".$Core_Api_Rule->name."': ".$message, 'red');
+										}
+									}
+								}
+							}
+						}
+						elseif($addressApi->isIPv($IPv)) {
+							$addressApi->reset($attribute);
+							$IPvStatus[$IPv] = false;
+						}
+					}
+
+					if($IPvStatus[4] === false) {
+						$this->_SHELL->print($objectName." '".$name."': suppression IPv4 (".$Core_Api_Address__clone->attributeV4.")", 'orange');
+					}
+					elseif($IPvStatus[4] === true) {
+						$this->_SHELL->print($objectName." '".$name."': mise à jour IPv4 (".$addressApi->attributeV4.")", 'green');
+					}
+					else {
+						$this->_SHELL->print($objectName." '".$name."': IPv4 à jour (".$addressApi->attributeV4.")", 'blue');
+					}
+
+					if($IPvStatus[6] === false) {
+						$this->_SHELL->print($objectName." '".$name."': suppression IPv6 (".$Core_Api_Address__clone->attributeV6.")", 'orange');
+					}
+					elseif($IPvStatus[6] === true) {
+						$this->_SHELL->print($objectName." '".$name."': mise à jour IPv6 (".$addressApi->attributeV6.")", 'green');
+					}
+					else {
+						$this->_SHELL->print($objectName." '".$name."': IPv6 à jour (".$addressApi->attributeV6.")", 'blue');
+					}
+
+					return true;
+				}
+				else {
+					throw new E\Message($objectName." '".$name."' ne semble pas correspondre à l'objet retourné par l'IPAM", E_USER_ERROR);
+				}
+			}
+
+			return false;
+		}
+
 		public function getLocalObjectApi($type, $arg, $strictKey = true)
 		{
 			$object = $this->getObject($type, $arg, $strictKey, true);
@@ -427,30 +581,32 @@
 					case 0: {
 						return null;
 					}
-					case 1: {
-						return new $class($results[0]['name'], $results[0][$class::FIELD_ATTRv4], $results[0][$class::FIELD_ATTRv6]);
+					case 1:
+					{
+						/**
+						  * On ne sait pas si le résultat est IPv4 ou IPv6, donc on essait de configurer les deux
+						  * /!\ Le résultat doit comporter les deux éléments IPv4 et IPv6 même si seulement l'un des deux existe
+						  */
+						$Core_Api_Address = new $class($results[0]['name'], $results[0]['name'], $results[0][$class::FIELD_ATTRv4], $results[0][$class::FIELD_ATTRv6]);
+						break;
 					}
 					case 2:
 					{
 						if($results[0]['name'] === $results[1]['name'])
 						{
-							$name = $results[0]['name'];
-							$Core_Api_Address = new $class($results[0]['name']);
-
-							$attributes = $class::FIELD_ATTRS;
+							$Core_Api_Address = new $class($results[0]['name'], $results[0]['name']);
 
 							foreach($results as $result)
 							{
-								foreach($attributes as $attribute)
+								foreach($class::FIELD_ATTRS as $attribute)
 								{
 									if($result[$attribute] !== null) {
-										$callable = array($Core_Api_Address, $class::FIELD_ATTR_FCT);
-										call_user_func($callable, $result[$attribute]);
+										$Core_Api_Address->configure($result[$attribute]);
 									}
 								}
 							}
 
-							return $Core_Api_Address;
+							break;
 						}
 						else {
 							return false;
@@ -460,6 +616,25 @@
 						return false;
 					}
 				}
+
+				/**
+				  * When IPAM entry has empty name
+				  * Use autonaming system instead
+				  */
+				if($Core_Api_Address->name === null)
+				{
+					$addressName = $this->getAutoNamingAddress($Core_Api_Address);
+
+					if($addressName !== false) {
+						$Core_Api_Address->id($addressName);
+						$Core_Api_Address->name($addressName);
+					}
+					else {
+						return false;
+					}
+				}
+
+				return $Core_Api_Address;
 			}
 			else {
 				return false;
@@ -470,9 +645,11 @@
 		  * @param $type string Object type
 		  * @param $arg string Object name or address
 		  * @param $strictKey bool Strict key search mode
+		  * @param $allowCreateFromAddress bool Allow to create object from address or not
+		  * @throw Exception|Core\Exception\Message
 		  * @return null|false|Core\Api_Address Return null if object can not be found, false if error occur or the object API instance found
 		  */
-		public function autoCreateObject($type, $arg, $strictKey = false)
+		public function autoCreateObject($type, $arg, $strictKey = false, $allowCreateFromAddress = true)
 		{
 			if($this->_typeIsAllowed($type))
 			{
@@ -490,52 +667,143 @@
 				{
 					$state = false;
 					$Core_Api_Address = $this->getIpamObjectApi($type, $arg, true);
-					
-					if($Core_Api_Address === null || $Core_Api_Address === false) {
-						return $Core_Api_Address;
+
+					if($Core_Api_Address === null)
+					{
+						if($allowCreateFromAddress)
+						{
+							$addressName = $this->getAutoNamingAddress($arg);
+
+							if($addressName !== false)
+							{
+								$objectApiExists = $this->objectExists($type, $addressName);
+
+								if(!$objectApiExists)
+								{
+									$Core_Api_Address = $this->insert($type, $addressName);
+
+									if($Core_Api_Address !== false)
+									{
+										$status = $Core_Api_Address->configure($arg);
+
+										if($status) {
+											return $Core_Api_Address;
+										}
+										else {
+											$this->_unregister($Core_Api_Address);
+										}
+									}
+								}
+							}
+						}
+
+						return null;
 					}
-					elseif($Core_Api_Address instanceof Core\Api_Abstract)
+					elseif($Core_Api_Address instanceof Core\Api_Address)
 					{
 						/**
 						  * Si $arg est une adresse, et que dans l'IPAM deux objets existent avec le même nom
-						  * alors localement cette adresse n'existe pas mais localement un objet avec ce nom existe
+						  * alors localement cette adresse n'existe pas mais un objet avec ce nom, lui, peut exister
 						  *
-						  * /!\ C'est à l'utilisateur d'effectuer un refresh ou de créer manuellement l'objet
+						  * Ne pas essayer d'utiliser la section de l'IPAM car tous les IPAM n'ont pas forcément une section
+						  * /!\ C'est donc à l'utilisateur d'effectuer un refresh ou de créer manuellement l'objet adresse
+						  *
+						  * Vérifier aussi, dans le cas où l'objet existe et que $arg est une adresse (v4 ou v6),
+						  * que ce n'est pas un ajout d'IP (v4 ou v6) réalisé après la création de l'objet dans l'outil
 						  */
-						$objectApiExists = $this->objectExists($type, $Core_Api_Address->name);
+						$Core_Api_Address__local = $this->getObject($type, $Core_Api_Address->name);
 
-						if(!$objectApiExists)
+						if($Core_Api_Address__local !== false)	// Un objet avec le même nom existe en local
 						{
-							if($Core_Api_Address instanceof Core\Api_Subnet) {
-								$state = $this->_register($Core_Api_Address, true);
+							if($Core_Api_Address__local->attributeV4 === $Core_Api_Address->attributeV4 && !$Core_Api_Address__local->isIPv6() && $Core_Api_Address->isIPv6()) {
+								$Core_Api_Address__local->configure($Core_Api_Address->attributeV6);
+								return $Core_Api_Address__local;
 							}
-							elseif($Core_Api_Address instanceof Core\Api_Host) {
-								$state = $this->_register($Core_Api_Address, true);
+							elseif($Core_Api_Address__local->attributeV6 === $Core_Api_Address->attributeV6 && !$Core_Api_Address__local->isIPv4() && $Core_Api_Address->isIPv4()) {
+								$Core_Api_Address__local->configure($Core_Api_Address->attributeV4);
+								return $Core_Api_Address__local;
 							}
-							else {
-								throw new Exception("Return object '".get_class($Core_Api_Address)."' is not allowed", E_USER_ERROR);
+							else
+							{
+								$addressName = $this->getAutoNamingAddress($Core_Api_Address);
+
+								if($addressName !== false)
+								{
+									$objectApiExists = $this->objectExists($type, $addressName);
+
+									if(!$objectApiExists)
+									{
+										$this->_SHELL->error("Un objet en local existe déjà avec le même nom '".$Core_Api_Address->name."'", 'orange');
+										$this->_SHELL->print("Le nom '".$addressName."' a été utilisé en substitution", 'green');
+
+										if(!$Core_Api_Address->id($addressName) || !$Core_Api_Address->name($addressName)) {
+											throw new E\Message("L'objet n'a pas pu être renommé en '".$addressName."'", E_USER_WARNING);
+										}
+									}
+									else {
+										throw new E\Message("Un objet en local existe déjà avec le même nom '".$Core_Api_Address->name."'", E_USER_WARNING);
+									}
+								}
+								else {
+									throw new Exception("Unable to auto-naming address object '".$Core_Api_Address->name."'", E_USER_ERROR);
+								}
 							}
+						}
+
+						if($Core_Api_Address instanceof Core\Api_Subnet) {
+							$state = $this->_register($Core_Api_Address, false, true);
+						}
+						elseif($Core_Api_Address instanceof Core\Api_Host) {
+							$state = $this->_register($Core_Api_Address, false, true);
 						}
 						else {
-							throw new E\Message("Un objet en local existe déjà avec le même nom '".$Core_Api_Address->name."'", E_USER_WARNING);
+							throw new Exception("Return object '".get_class($Core_Api_Address)."' is not allowed", E_USER_ERROR);
+						}
+
+						if($state) {
+							return $Core_Api_Address;
+						}
+						else {
+							throw new Exception("Unable to register custom object from IPAM object(s)", E_USER_ERROR);
 						}
 					}
-					else {
+					elseif($Core_Api_Address !== false) {
 						throw new Exception("Return type '".gettype($Core_Api_Address)."' is not allowed", E_USER_ERROR);
 					}
-
-					if($state && $Core_Api_Address !== false) {
-						return $Core_Api_Address;
-					}
-					else {
-						throw new Exception("Unable to create custom object from IPAM object(s)", E_USER_ERROR);
-					}
+				}
+				elseif($Core_Api_Address instanceof Core\Api_Address) {
+					return $Core_Api_Address;
 				}
 				elseif($Core_Api_Address !== false) {
-					return $Core_Api_Address;
+					throw new Exception("Return type '".gettype($Core_Api_Address)."' is not allowed", E_USER_ERROR);
 				}
 			}
 
 			return false;
+		}
+
+		/**
+		  * @param string|App\Core\Api_Address $address
+		  * @return false|string Address auto name
+		  */
+		public function getAutoNamingAddress($address)
+		{
+			/**
+			  * Do not use - as separator because
+			  * network address has it as separator
+			  */
+			if($address instanceof Core\Api_Address) {
+				$address = $address->ipv4.'_'.$address->ipv6;
+				$address = trim($address, '_');
+				$isValid = true;
+			}
+			elseif(Core\Tools::isIP($address) || Core\Tools::isSubnet($address) || Core\Tools::isNetwork($address, Core\Api_Network::SEPARATOR)) {
+				$isValid = true;
+			}
+			else {
+				$isValid = false;
+			}
+
+			return ($isValid) ? ('AUTO_ADD__'.$address) : (false);
 		}
 	}

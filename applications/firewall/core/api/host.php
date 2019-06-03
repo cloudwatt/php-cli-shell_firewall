@@ -11,23 +11,37 @@
 		const FIELD_ATTRv4 = 'addressV4';
 		const FIELD_ATTRv6 = 'addressV6';
 		const FIELD_ATTRS = array(
-			'addressV4', 'addressV6'
+			4 => 'addressV4', 6 => 'addressV6'
 		);
 		const FIELD_ATTR_FCT = 'address';
 		const FIELD_ATTRS_FCT = 'addresses';
 
 		protected $_datas = array(
+			'_id_' => null,
 			'name' => null,
 			'addressV4' => null,
 			'addressV6' => null,
 		);
 
 
-		public function __construct($name = null, $addressV4 = null, $addressV6 = null)
+		/**
+		  * @param string $id ID
+		  * @param string $name Name
+		  * @param string $addressV4 Adress IP v4
+		  * @param string $addressV6 Adress IP v6
+		  * @return $this
+		  */
+		public function __construct($id = null, $name = null, $addressV4 = null, $addressV6 = null)
 		{
+			$this->id($id);
 			$this->name($name);
 			$this->address($addressV4);
 			$this->address($addressV6);
+		}
+
+		public function configure($address)
+		{
+			return $this->address($address);
 		}
 
 		public function address($address)
@@ -76,7 +90,7 @@
 					if($this->isIPv4() && $addressApi->isIPv4() && $this->attributeV4 === $addressApi->attributeV4) {
 						return true;
 					}
-					elseif($this->isIPv6()&& $addressApi->isIPv6() && $this->attributeV6 === $addressApi->attributeV6) {
+					elseif($this->isIPv6() && $addressApi->isIPv6() && $this->attributeV6 === $addressApi->attributeV6) {
 						return true;
 					}
 
@@ -89,7 +103,7 @@
 					/*if($this->isIPv4() && $addressApi->isIPv4() && Tools::cidrMatch($this->attributeV4, $addressApi->attributeV4)) {
 						return true;
 					}
-					elseif($this->isIPv6()&& $addressApi->isIPv6() && Tools::cidrMatch($this->attributeV6, $addressApi->attributeV6)) {
+					elseif($this->isIPv6() && $addressApi->isIPv6() && Tools::cidrMatch($this->attributeV6, $addressApi->attributeV6)) {
 						return true;
 					}*/
 
@@ -105,7 +119,7 @@
 					) {
 						return true;
 					}
-					elseif($this->isIPv6()&& $addressApi->isIPv6() && 
+					elseif($this->isIPv6() && $addressApi->isIPv6() && 
 							Tools::IpToBin($this->attributeV6) > Tools::IpToBin($addressApi->beginV6) &&
 							Tools::IpToBin($this->attributeV6) < Tools::IpToBin($addressApi->finishV6)
 					) {

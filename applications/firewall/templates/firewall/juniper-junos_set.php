@@ -172,12 +172,24 @@ set security policies from-zone <?php echo $accessList['srcZone']; ?> to-zone <?
 set security policies from-zone <?php echo $accessList['srcZone']; ?> to-zone <?php echo $accessList['dstZone']; ?> policy <?php echo $accessList['aclName']; ?> then permit
 <?php
 		}
+
+		if(in_array('logging', $accessList['tags'], true))
+		{
 ?>
 
 set security policies from-zone <?php echo $accessList['srcZone']; ?> to-zone <?php echo $accessList['dstZone']; ?> policy <?php echo $accessList['aclName']; ?> then log session-init
 set security policies from-zone <?php echo $accessList['srcZone']; ?> to-zone <?php echo $accessList['dstZone']; ?> policy <?php echo $accessList['aclName']; ?> then log session-close
+<?php
+		}
+
+		if(in_array('counter', $accessList['tags'], true))
+		{
+?>
+
 set security policies from-zone <?php echo $accessList['srcZone']; ?> to-zone <?php echo $accessList['dstZone']; ?> policy <?php echo $accessList['aclName']; ?> then count
 <?php
+		}
+
 		if($accessList['state'] === true)
 		{
 ?>

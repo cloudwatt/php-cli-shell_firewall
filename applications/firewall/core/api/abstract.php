@@ -7,16 +7,43 @@
 
 	abstract class Api_Abstract implements \IteratorAggregate, \ArrayAccess, \Countable
 	{
+		const FIELD_ID = '_id_';
+
+		const FIELD_ATTRS = array();
+
 		protected $_datas = array(
 			'type' => null,			// /!\ Réservé pour le type de l'objet, voir toArray()
+			'_id_' => null,			// /!\ Réservé pour l'identifiant de l'objet
 			'name' => null,			// /!\ Réservé pour le nom de l'objet, voir toArray()
 		);
 
 
+		/**
+		  * Sets id
+		  *
+		  * @param string $name
+		  * @return bool
+		  */
+		public function id($id)
+		{
+			if(C\Tools::is('string&&!empty', $id) || C\Tools::is('int&&>0', $id)) {
+				$this->_datas[static::FIELD_ID] = mb_strtolower($id);		// auto cast to string
+				return true;
+			}
+
+			return false;
+		}
+
+		/**
+		  * Sets name
+		  *
+		  * @param string $name
+		  * @return bool
+		  */
 		public function name($name)
 		{
 			if(C\Tools::is('string&&!empty', $name) || C\Tools::is('int&&>=0', $name)) {
-				$this->_datas['name'] = (string) $name;
+				$this->_datas[static::FIELD_NAME] = (string) $name;
 				return true;
 			}
 
@@ -54,34 +81,38 @@
 			return $this->isValid();
 		}
 
-		protected function _isValid(array $tests, $returnInvalidAttributes = false, $operator = 'AND')
+		protected function _isValid(array $tests, $returnInvalidAttributes = false)
 		{
-			$counter = 0;
-			$invalidAttributes = array();
+			$status = true;
+			$invalidAttrs = array();
 
-			foreach($tests as $test => $attributes)
+			foreach($tests as $_tests)
 			{
-				foreach($attributes as $attribute)
+				$orStatus = false;
+				$orInvalidAttrs = array();
+
+				foreach($_tests as $attribute => $test)
 				{
 					if(!C\Tools::is($test, $this->_datas[$attribute])) {
-						$invalidAttributes[] = $attribute;
+						$orInvalidAttrs[] = $attribute;
 					}
+					else {
+						$orStatus = true;
+					}
+				}
 
-					$counter++;
+				$status = $status && $orStatus;
+
+				if(!$orStatus) {
+					$invalidAttrs = array_merge($invalidAttrs, $orInvalidAttrs);
 				}
 			}
 
 			if($returnInvalidAttributes) {
-				return $invalidAttributes;
-			}
-			elseif($operator === 'AND') {
-				return (count($invalidAttributes) === 0);
-			}
-			elseif($operator === 'OR') {
-				return (count($invalidAttributes) < $counter);
+				return $invalidAttrs;
 			}
 			else {
-				return false;
+				return $status;
 			}
 		}
 
@@ -123,11 +154,14 @@
 			$datas = $this->_datas;
 			$datas['type'] = static::OBJECT_TYPE;
 
+			// Attribut système, non utile
+			unset($datas[static::FIELD_ID]);
+
 			// /!\ Permet de garder une cohérence
 			if(static::FIELD_NAME !== 'name') {
 				$datas['name'] = $datas[static::FIELD_NAME];
 			}
-			
+
 			return $datas;
 		}
 
@@ -147,6 +181,10 @@
 			{
 				case 'type': {
 					return static::OBJECT_TYPE;
+				}
+				case 'id':
+				case '_id_': {
+					return $this->_datas[static::FIELD_ID];
 				}
 				case 'name':
 				case 'label': {
@@ -169,8 +207,33 @@
 			return $this->name;
 		}
 
+		/**
+		  * @return array
+		  */
 		public function sleep()
 		{
-			return $this->_datas;
+			return array(
+				//'id' => $this->_datas[static::FIELD_ID],
+				'name' => $this->_datas[static::FIELD_NAME]
+			);
+		}
+
+		/**
+		  * @param $datas array
+		  * @return bool
+		  */
+		public function wakeup(array $datas)
+		{
+			// @todo temporaire/compatibilité
+			// ------------------------------
+			if(!array_key_exists('id', $datas)) {
+				$datas['id'] = $datas['name'];
+			}
+			// ------------------------------
+
+			$idStatus = $this->id($datas['id']);
+			$nameStatus = $this->name($datas['name']);
+
+			return ($idStatus && $nameStatus);
 		}
 	}

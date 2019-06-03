@@ -3,12 +3,15 @@
 
 	use ArrayObject;
 
+	use Core\Exception as E;
+
 	use Addon\Ipam;
 
-	class Template_Cisco_Asa extends Template_Abstract
+	class Template_Cisco_Asa extends Template_Appliance
 	{
-		const PLATFORM = 'cisco';
-		const TEMPLATE = 'asa';
+		const VENDOR = 'cisco';
+		const PLATFORM = 'asa';
+		const TEMPLATE = null;
 
 		const ALLOW_RULE_MULTIZONES = self::RULE_MULTIZONES_DST;
 
@@ -21,10 +24,29 @@
 
 		const ADDRESS_SUBNET_IPv_SEPARATOR = '-network';
 
+		const ADDRESS_NAME_MAX_LENGTH = 64;			// https://www.cisco.com/c/en/us/td/docs/security/asa/asa98/configuration/firewall/asa-98-firewall-config/access-objects.html
+		const RULE_NAME_MAX_LENGTH = 241;			// https://www.cisco.com/c/en/us/td/docs/security/asa/asa98/configuration/firewall/asa-98-firewall-config/access-acls.html
+		const RULE_DESCRIPTION_MAX_LENGTH = 101;
 
+
+		/**
+		  * @return array Variables for rendering template
+		  */
+		protected function _getTemplateVars()
+		{
+			$vars = parent::_getTemplateVars();
+			$vars['globalZone'] = $this->_siteApi->globalZone;
+			return $vars;
+		}
+
+		/**
+		  * @param App\Firewall\Core\Api_Address $addressApi
+		  * @param string $zone
+		  * @return array|ArrayObject Object address datas
+		  */
 		protected function _toObjectAdd(Api_Address $addressApi, $zone = null)
 		{
-			$objectAdd = $this->_getObjectAdd($addressApi, $zone);
+			$objectAdd = $this->_getObjectAdd($addressApi, null);
 
 			if($objectAdd !== false) {
 				return $objectAdd;
@@ -46,7 +68,16 @@
 				$addressName = $apiAddressName;
 			}
 
-			foreach(array('4' => $addressApi::FIELD_ATTRv4, '6' => $addressApi::FIELD_ATTRv6) as $IPv => $attrName)
+			// https://www.cisco.com/c/en/us/td/docs/security/asa/asa98/configuration/firewall/asa-98-firewall-config/access-objects.html#ID-2122-00000008
+			$addressName = preg_replace('#[^a-z0-9.!@\#\$%\^&()\-_{}]#ui', self::ADDRESS_ESCAPE_CHARACTERS, $addressName);
+
+			if(mb_strlen($addressName) > static::ADDRESS_NAME_MAX_LENGTH) {
+				$eMessage = "The address object '".$apiAddressName."' has its template name '".$addressName."' too long: ";
+				$eMessage .= static::ADDRESS_NAME_MAX_LENGTH." characters max are allowed!";
+				throw new E\Message($eMessage, E_USER_WARNING);
+			}
+
+			foreach(array(4 => $addressApi::FIELD_ATTRv4, 6 => $addressApi::FIELD_ATTRv6) as $IPv => $attrName)
 			{
 				if(!$addressApi->isIPv($IPv)) {
 					continue;
@@ -67,8 +98,23 @@
 				$type = $addressApi::OBJECT_TYPE;
 				$address = $addressApi->{$attrName};
 
-				if($addressApi::OBJECT_TYPE === Api_Network::OBJECT_TYPE) {
-					$address = explode(Api_Network::SEPARATOR, $address);
+				switch($addressApi::OBJECT_TYPE)
+				{
+					case Api_Subnet::OBJECT_TYPE:
+					{
+						if($IPv === 4) {
+							$address = explode(Api_Subnet::SEPARATOR, $address);
+							$address[1] = Tools::cidrMaskToNetMask($address[1]);
+						}
+						else {
+							$address = array($address);
+						}
+						break;
+					}
+					case Api_Network::OBJECT_TYPE: {
+						$address = explode(Api_Network::SEPARATOR, $address);
+						break;
+					}
 				}
 
 				$result['name'] = $name;
@@ -88,9 +134,14 @@
 			return $addresses;
 		}
 
+		/**
+		  * @param App\Firewall\Core\Api_Protocol $protocolApi
+		  * @param string $zone
+		  * @return array|ArrayObject Protocol application datas
+		  */
 		protected function _toProtocolApp(Api_Protocol $protocolApi, $zone = null)
 		{
-			$protocolApp = $this->_getProtocolApp($protocolApi, $zone);
+			$protocolApp = $this->_getProtocolApp($protocolApi, null);
 
 			if($protocolApp !== false) {
 				return $protocolApp;
@@ -147,7 +198,15 @@
 			return $result;
 		}
 
-		protected function _toPolicyAcl(Api_Rule $ruleApi, $srcZone, array $sources, $dstZone, array $destinations)
+		/**
+		  * @param App\Firewall\Core\Api_Rule $ruleApi
+		  * @param array $srcZones
+		  * @param array $sources
+		  * @param array $dstZones
+		  * @param array $destinations
+		  * @return array|ArrayObject Policy accesslist datas
+		  */
+		protected function _toPolicyAcl(Api_Rule $ruleApi, array $srcZones, array $sources, array $dstZones, array $destinations)
 		{
 			$policyAcl = $this->_getPolicyAcl($ruleApi);
 
@@ -155,11 +214,17 @@
 				return $policyAcl;
 			}
 
-			$result = array();
 			$ruleName = $ruleApi->name;
+			$result = new ArrayObject(array(), ArrayObject::ARRAY_AS_PROPS);
 
 			$result['aclName'] = self::ACL_NAME_PREFIX;
 			$result['aclName'] .= $ruleApi->timestamp.'-'.$ruleName;
+
+			if(mb_strlen($result['aclName']) > static::RULE_NAME_MAX_LENGTH) {
+				$eMessage = "The rule object '".$ruleName."' has its template name '".$result['aclName']."' too long: ";
+				$eMessage .= static::RULE_NAME_MAX_LENGTH." characters max are allowed!";
+				throw new E\Message($eMessage, E_USER_WARNING);
+			}
 
 			$result['state'] = $ruleApi->state;
 			$result['action'] = $ruleApi->action;
@@ -167,7 +232,14 @@
 			$result['sources'] = $sources;
 			$result['destinations'] = $destinations;
 
-			$result['interface'] = $srcZone;
+			$srcZones = array_unique($srcZones);
+
+			if(count($srcZones) === 1) {
+				$result['interface'] = current($srcZones);
+			}
+			else {
+				throw new E\Message("Ce template '".static::VENDOR."-".static::PLATFORM."' n'est pas compatible avec l'ACL multi-zones '".$ruleApi->name."'", E_USER_ERROR);
+			}
 
 			$result['srcAdds'] = array();
 			$result['dstAdds'] = array();
@@ -187,7 +259,14 @@
 				$result['protoApps'][] = $protocol;
 			}
 
-			$result['description'] = (string) $ruleApi->description;
+			$result['tags'] = array();
+
+			foreach($ruleApi->tags as $tag) {
+				$result['tags'][] = $tag->tag;
+			}
+
+			$result['description'] = mb_substr($ruleApi->description, 0, static::RULE_DESCRIPTION_MAX_LENGTH);
+
 			$this->_accessLists[$ruleName] = $result;
 			return $result;
 		}

@@ -15,16 +15,40 @@
 		const OBJECT_IDS = array(
 			Core\Api_Host::OBJECT_TYPE,
 			Core\Api_Subnet::OBJECT_TYPE,
-			Core\Api_Network::OBJECT_TYPE
+			Core\Api_Network::OBJECT_TYPE,
+			Core\Api_Site::OBJECT_TYPE,
+			Core\Api_Rule::OBJECT_TYPE,
 		);
 
 		const OBJECT_KEYS = array(
 			Core\Api_Host::OBJECT_TYPE => Core\Api_Host::OBJECT_KEY,
 			Core\Api_Subnet::OBJECT_TYPE => Core\Api_Subnet::OBJECT_KEY,
-			Core\Api_Network::OBJECT_TYPE => Core\Api_Network::OBJECT_KEY
+			Core\Api_Network::OBJECT_TYPE => Core\Api_Network::OBJECT_KEY,
+			Core\Api_Site::OBJECT_TYPE => Core\Api_Site::OBJECT_KEY,
+			Core\Api_Rule::OBJECT_TYPE => Core\Api_Rule::OBJECT_KEY,
 		);
 
 		const OBJECT_CLASSES = array(
+			Core\Api_Host::OBJECT_TYPE => 'App\Firewall\Core\Api_Host',
+			Core\Api_Subnet::OBJECT_TYPE => 'App\Firewall\Core\Api_Subnet',
+			Core\Api_Network::OBJECT_TYPE => 'App\Firewall\Core\Api_Network',
+			Core\Api_Site::OBJECT_TYPE => 'App\Firewall\Core\Api_Site',
+			Core\Api_Rule::OBJECT_TYPE => 'App\Firewall\Core\Api_Rule',
+		);
+
+		const ADDRESS_IDS = array(
+			Core\Api_Host::OBJECT_TYPE,
+			Core\Api_Subnet::OBJECT_TYPE,
+			Core\Api_Network::OBJECT_TYPE
+		);
+
+		const ADDRESS_KEYS = array(
+			Core\Api_Host::OBJECT_TYPE => Core\Api_Host::OBJECT_KEY,
+			Core\Api_Subnet::OBJECT_TYPE => Core\Api_Subnet::OBJECT_KEY,
+			Core\Api_Network::OBJECT_TYPE => Core\Api_Network::OBJECT_KEY
+		);
+
+		const ADDRESS_CLASSES = array(
 			Core\Api_Host::OBJECT_TYPE => 'App\Firewall\Core\Api_Host',
 			Core\Api_Subnet::OBJECT_TYPE => 'App\Firewall\Core\Api_Subnet',
 			Core\Api_Network::OBJECT_TYPE => 'App\Firewall\Core\Api_Network'
@@ -47,6 +71,7 @@
 
 		const IMPORT_CLASSES = array(
 			'csv' => 'App\Firewall\Shell_Program_Firewall_Config_Extension_Csv',
+			'json' => 'App\Firewall\Shell_Program_Firewall_Config_Extension_Json',
 		);
 
 		/**
@@ -70,6 +95,31 @@
 		protected $_objects;
 
 		/**
+		  * @var App\Firewall\Shell_Program_Firewall_Object_Site
+		  */
+		protected $_siteFwProgram = null;
+
+		/**
+		  * @var App\Firewall\Shell_Program_Firewall_Object_Address
+		  */
+		protected $_addressFwProgram = null;
+
+		/**
+		  * @var App\Firewall\Shell_Program_Firewall_Object_Rule
+		  */
+		protected $_ruleFwProgram = null;
+
+		/**
+		  * @var App\Firewall\Shell_Program_Firewall_Config_Extension_Csv
+		  */
+		protected $_csvConfig = null;
+
+		/**
+		  * @var App\Firewall\Shell_Program_Firewall_Config_Extension_Json
+		  */
+		protected $_jsonConfig = null;
+
+		/**
 		  * @var bool
 		  */
 		protected $_hasChanges = false;
@@ -85,23 +135,66 @@
 		protected $_isAutoSaving = false;
 
 		/**
-		  * @var string
+		  * Null allow to load a config file
+		  * False forbid to load a config file, after a recovery
+		  * String is the filename of the config after loaded it
+		  *
+		  * @var null|false|string Null allow to load a config, false forbid it, string is the file loaded
 		  */
 		protected $_filename = null;
 
+		/**
+		  * All prefix and suffix files loaded
+		  * @var array
+		  */
+		protected $_filenames = array();
 
-		public function __construct(Cli\Shell\Main $SHELL, ArrayObject $objects)
+		/**
+		  * Auto save filename
+		  * @var string
+		  */
+		protected $_asFilename = null;
+
+
+		public function __construct(Cli\Shell\Main $SHELL, ArrayObject $objects,
+			Shell_Program_Firewall_Object_Site $siteFwProgram, Shell_Program_Firewall_Object_Address $addressFwProgram, Shell_Program_Firewall_Object_Rule $ruleFwProgram)
 		{
 			$this->_SHELL = $SHELL;
 			$this->_TERMINAL = $SHELL->terminal;
 			$this->_CONFIG = $SHELL->config;
 
 			$this->_objects = $objects;
+
+			$this->_siteFwProgram = $siteFwProgram;
+			$this->_addressFwProgram = $addressFwProgram;
+			$this->_ruleFwProgram = $ruleFwProgram;
+
+			$this->_csvConfig = new Shell_Program_Firewall_Config_Extension_Csv($SHELL, $objects, $siteFwProgram, $addressFwProgram, $ruleFwProgram);
+			$this->_jsonConfig = new Shell_Program_Firewall_Config_Extension_Json($SHELL, $objects, $siteFwProgram, $addressFwProgram, $ruleFwProgram);
 		}
 
-		protected function _canLoad()
+		protected function _canLoad($prefix = null, $suffix = null)
 		{
-			return ($this->_filename === null);
+			$filename = $this->_getFilename($prefix, $suffix);
+			return ($filename === null);
+		}
+
+		protected function _isLoaded($prefix = null, $suffix = null)
+		{
+			return !$this->_canLoad($prefix, $suffix);
+		}
+
+		protected function _isRecovery()
+		{
+			return ($this->_filename === false);
+		}
+
+		protected function _resetLoad()
+		{
+			$this->_resetStatus();
+			$this->_clearConfigurations();
+			$this->_filename = null;
+			$this->_filenames = array();
 		}
 
 		public function hasChanges()
@@ -132,10 +225,9 @@
 
 		protected function _resetAutosave()
 		{
-			$filename = $this->_CONFIG->FIREWALL->configuration->paths->autosave;
-			$filename = C\Tools::filename($filename);
+			$filename = $this->_getAsFilename();
 
-			if(file_exists($filename) && is_writable($filename)) {
+			if($filename !== false && file_exists($filename) && is_writable($filename)) {
 				return unlink($filename);
 			}
 			else {
@@ -143,15 +235,101 @@
 			}
 		}
 
-		protected function _clearObjects()
+		protected function _resetStatus()
 		{
-			foreach(self::OBJECT_KEYS as $key) {
+			$this->_hasChanges = false;
+			$this->_isSaving = false;
+			$this->_isAutoSaving = false;
+			return $this;
+		}
+
+		/**
+		  * @param string $filename
+		  * @param string $prefix
+		  * @param string $suffix
+		  * @return void
+		  */
+		protected function _setFilename($filename, $prefix = null, $suffix = null)
+		{
+			if($prefix !== null || $suffix !== null) {
+				if(!C\Tools::is('string&&!empty', $prefix)) $prefix = 0;
+				if(!C\Tools::is('string&&!empty', $suffix)) $suffix = 0;
+				$this->_filenames[$prefix][$suffix] = $filename;
+			}
+			else {
+				$this->_filename = $filename;
+			}
+		}
+
+		/**
+		  * @param string $prefix
+		  * @param string $suffix
+		  * @return null|string
+		  */
+		protected function _getFilename($prefix = null, $suffix = null)
+		{
+			if($prefix !== null || $suffix !== null)
+			{
+				$filenames = $this->_filenames;
+
+				if(!C\Tools::is('string&&!empty', $prefix)) {
+					$prefix = 0;
+				}
+
+				if(array_key_exists($prefix, $filenames)) {
+					$filenames = $filenames[$prefix];
+				}
+				else {
+					return null;
+				}
+
+				if(!C\Tools::is('string&&!empty', $suffix)) {
+					$suffix = 0;
+				}
+
+				if(array_key_exists($suffix, $filenames)) {
+					$filenames = $filenames[$suffix];
+				}
+				else {
+					return null;
+				}
+
+				return $filenames;
+			}
+			else {
+				return $this->_filename;
+			}
+		}
+
+		protected function _getAsFilename()
+		{
+			if($this->_asFilename === null)
+			{
+				$CONFIG = $this->_CONFIG->FIREWALL->configuration;
+
+				$status = $CONFIG->autosave->status;
+				$filename = $CONFIG->paths->autosave;
+
+				if($status && C\Tools::is('string&&!empty', $filename)) {
+					$this->_asFilename = C\Tools::filename($filename);
+				}
+				else {
+					$this->_asFilename = false;
+				}
+			}
+
+			return $this->_asFilename;
+		}
+
+		protected function _clearAddresses()
+		{
+			foreach(self::ADDRESS_KEYS as $key) {
 				$objects =& $this->_objects[$key];		// /!\ Important
 				$objects = array();
 			}
 		}
 
-		protected function _clearConfigs()
+		protected function _clearConfigurations()
 		{
 			foreach(self::CONFIG_KEYS as $key) {
 				$objects =& $this->_objects[$key];		// /!\ Important
@@ -159,7 +337,24 @@
 			}
 		}
 
-		protected function _getObjectsToSave()
+		protected function _checkAllObjects()
+		{
+			$errors = array();
+
+			foreach($this->_objects as $key => $objects)
+			{
+				foreach($objects as $object)
+				{
+					if(!$object->isValid()) {
+						$errors[] = $object;
+					}
+				}
+			}
+
+			return $errors;
+		}
+
+		protected function _getObjectsToSave($checkValidity = true)
 		{
 			$items = array();
 			$errors = array();
@@ -180,7 +375,7 @@
 
 				foreach($objects as $object)
 				{
-					if($object->isValid()) {
+					if(!$checkValidity || $object->isValid()) {
 						$items[$name][$type][] = $object->sleep();
 					}
 					else {
@@ -194,140 +389,14 @@
 
 		// LOAD
 		// --------------------------------------------------
-		protected function _loadAddresses(array $addresses)
-		{
-			$status = true;
-
-			foreach($addresses as $type => $_addresses)
-			{
-				if(($addressApiClass = $this->_addressTypeToClass($type, false)) !== false)
-				{
-					foreach($_addresses as $address)
-					{
-						$Core_Api_Address = new $addressApiClass();
-						$status = $Core_Api_Address->wakeup($address);
-
-						if($status && $Core_Api_Address->isValid()) {
-							$this->_objects[$addressApiClass::OBJECT_KEY][$Core_Api_Address->name] = $Core_Api_Address;
-						}
-						else {
-							$status = false;
-							break(2);
-						}
-					}
-				}
-				else {
-					throw new Exception("Unknown address type '".$type."'", E_USER_ERROR);
-				}
-			}
-
-			return $status;
-		}
-
-		protected function _loadConfigurations(array $configs, $loadSite = true, $loadRules = true)
-		{
-			$status = true;
-
-			if($loadSite && array_key_exists(Core\Api_Site::OBJECT_TYPE, $configs))
-			{
-				$sites = $configs[Core\Api_Site::OBJECT_TYPE];
-
-				if(count($sites) > 0)
-				{
-					foreach($sites as $site)
-					{
-						$Core_Api_Site = new Core\Api_Site();
-						$status = $Core_Api_Site->wakeup($site);
-
-						if($status)
-						{
-							if($Core_Api_Site->isValid()) {
-								$name = $Core_Api_Site->name;
-								$this->_objects[Core\Api_Site::OBJECT_KEY][$name] = $Core_Api_Site;
-							}
-							else {
-								throw new E\Message("Le site '".$site['name']."' semble invalide et bloque le chargement de la configuration", E_USER_ERROR);
-								$status = false;
-								break;
-							}
-						}
-						else {
-							throw new E\Message("Le site '".$site['name']."' n'existe pas ou sa configuration est absente", E_USER_ERROR);
-							break;
-						}
-					}
-				}
-			}
-
-			if($status && $loadRules && array_key_exists(Core\Api_Rule::OBJECT_TYPE, $configs))
-			{
-				$rules = $configs[Core\Api_Rule::OBJECT_TYPE];
-
-				if(count($rules) > 0)
-				{
-					foreach($rules as $index => $rule)
-					{
-						/**
-						  * Permet de garantir l'unicité des noms des règles
-						  * Permet de garantir l'idempotence lors de l'export
-						  */
-						$ruleName = $rule[Core\Api_Rule::FIELD_NAME];
-						$ruleId = $ruleName-1;
-
-						if(!array_key_exists($ruleId, $this->_objects[Core\Api_Rule::OBJECT_KEY]))
-						{
-							$Core_Api_Rule = new Core\Api_Rule();
-
-							try {
-								$status = $Core_Api_Rule->wakeup($rule, $this->_objects);
-							}
-							catch(E\Message $exception) {
-								$status = false;
-							}
-
-							if($status)
-							{
-								if($Core_Api_Rule->isValid()) {
-									$this->_objects[Core\Api_Rule::OBJECT_KEY][$ruleId] = $Core_Api_Rule;
-								}
-								else {
-									$invalidFieldNames = $Core_Api_Rule->isValid(true);
-									throw new E\Message("La règle '".$ruleName."' semble invalide et bloque le chargement de la configuration (".implode(', ', $invalidFieldNames).")", E_USER_ERROR);
-								}
-							}
-							elseif(isset($exception)) {
-								throw new E\Message("La règle '".$ruleName."' possède des attributs incorrects:".PHP_EOL.$exception->getMessage(), E_USER_ERROR);
-							}
-							else {
-								throw new E\Message("Impossible de charger la règle '".$ruleName."'", E_USER_ERROR);
-							}
-						}
-						else {
-							throw new E\Message("La règle '".$ruleName."' existe déjà", E_USER_ERROR);
-						}
-					}
-
-					/**
-					  * Sécurité afin de s'assurer que l'ordre des règles est correct
-					  */
-					ksort($this->_objects[Core\Api_Rule::OBJECT_KEY]);
-				}
-			}
-
-			return $status;
-		}
-
 		protected function _recovery()
 		{
 			$status = false;
-			$config = $this->_CONFIG->FIREWALL->configuration;
+			$filename = $this->_getAsFilename();
 
-			if($config->autosave->status)
+			if($filename !== false)
 			{
-				$filename = $config->paths->autosave;
-				$filename = C\Tools::filename($filename);
-
-				if((file_exists($filename) && is_readable($filename)))
+				if(file_exists($filename) && is_readable($filename))
 				{
 					$this->_SHELL->EOL();
 
@@ -340,53 +409,35 @@
 
 					if($answer === '' || $answer === 'y' || $answer === 'yes')
 					{
-						$json = file_get_contents($filename);
-
-						if($json !== false)
-						{
-							// @todo php 7.3
-							//$items = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-							$items = json_decode($json, true);
-
-							if($items !== null)
-							{
-								try
-								{
-									$statusA = $this->_loadAddresses($items['objects']);
-
-									if($statusA) {
-										$statusC = $this->_loadConfigurations($items['configs']);
-									}
-								}
-								catch(\Exception $e) {
-									$this->_SHELL->throw($e);
-									$statusA = false;
-									$statusC = false;
-								}
-
-								if(!$statusA || !$statusC) {
-									$this->_clearObjects();
-									$this->_clearConfigs();
-
-									$this->_SHELL->error("Impossible de récupérer la sauvegarde automatique!", 'red');
-								}
-								else
-								{
-									/**
-									  * /!\ Important, permet de bloquer un futur chargement
-									  * $this->_filename doit toujours être le fichier JSON
-									  */
-									$this->_filename = $filename;
-									$this->_SHELL->print("Récupération de la sauvegarde automatique terminée!", 'green');
-								}
-
-								/**
-								  * Le fichier autosave existant alors même si il est vide on a bien essayé de la charger
-								  * donc il faut l'indiquer en retournant true et même si une erreur s'est produite
-								  */
-								$status = true;
-							}
+						try {
+							$status = $this->_jsonConfig->apply($filename, 'objects', 'configs', 'configs', false);
 						}
+						catch(\Exception $e) {
+							$this->_SHELL->throw($e);
+							$status = false;
+						}
+
+						if(!$status) {
+							$this->_clearAddresses();
+							$this->_clearConfigurations();
+
+							$this->_SHELL->error("Impossible de récupérer la sauvegarde automatique!", 'red');
+						}
+						else
+						{
+							/**
+							  * /!\ Important, permet de bloquer un futur chargement
+							  */
+							$this->_setFilename(false);
+
+							$this->_SHELL->print("Récupération de la sauvegarde automatique terminée!", 'green');
+						}
+
+						/**
+						  * Le fichier autosave existant alors même si il est vide on a bien essayé de la charger
+						  * donc il faut l'indiquer en retournant true et même si une erreur s'est produite
+						  */
+						$status = true;
 					}
 				}
 			}
@@ -409,44 +460,20 @@
 
 				if(file_exists($filename))
 				{
-					if(is_readable($filename))
-					{
-						$json = file_get_contents($filename);
+					try {
+						$status = $this->_jsonConfig->loadAddresses($filename);
+					}
+					catch(\Exception $e) {
+						$this->_SHELL->throw($e);
+						$status = false;
+					}
 
-						if($json !== false)
-						{
-							// @todo php 7.3
-							//$items = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-							$items = json_decode($json, true);
-
-							if($items !== null)
-							{
-								try {
-									$status = $this->_loadAddresses($items);
-								}
-								catch(\Exception $e) {
-									$this->_SHELL->throw($e);
-									$status = false;
-								}
-
-								if($status) {
-									$this->_SHELL->print("Chargement des objets terminée!", 'green');
-								}
-								else {
-									$this->_clearObjects();
-									$this->_SHELL->error("Une erreur s'est produite pendant le chargement des objets", 'orange');
-								}
-							}
-							else {
-								$this->_SHELL->error("Le fichier de sauvegarde '".$filename."' n'a pas une structure JSON valide", 'orange');
-							}
-						}
-						else {
-							$this->_SHELL->error("Une erreur s'est produite pendant la lecture du fichier de sauvegarde '".$filename."'", 'orange');
-						}
+					if($status) {
+						$this->_SHELL->print("Chargement des objets terminée!", 'green');
 					}
 					else {
-						$this->_SHELL->error("Le fichier de sauvegarde '".$filename."' ne peut être lu", 'orange');
+						$this->_clearAddresses();
+						$this->_SHELL->error("Une erreur s'est produite pendant le chargement des objets", 'orange');
 					}
 				}
 				else {
@@ -460,124 +487,121 @@
 
 		public function load(array $args)
 		{
-			$status = false;
-
 			if(isset($args[0]))
 			{
-				if($this->_canLoad())
+				$prefix = (isset($args[1]) && C\Tools::is('string&&!empty', $args[1])) ? ($args[1]) : (false);
+
+				if($this->_canLoad() || $prefix)
 				{
-					$loadJsonSites = true;
-					$loadJsonRules = true;
-
-					$pathname = $this->_CONFIG->FIREWALL->configuration->paths->configs;
-					$filename = C\Tools::filename(rtrim($pathname, '/').'/'.$args[0].'.json');
-
-					if(preg_match('#\.([^.\s]*)$#i', $args[0], $matches))
+					if($this->_canLoad($prefix))
 					{
-						$filenameLength = (mb_strlen($args[0])-mb_strlen($matches[1])-1);
-						$args[1] = mb_substr($args[0], 0, $filenameLength);					// filename
-						$args[0] = mb_strtolower($matches[1]);								// format
-					}
-					else {
-						$args[1] = $args[0];												// filename
-						$args[0] = 'json';													// format
-					}
-						
-					$filename = C\Tools::filename(rtrim($pathname, '/').'/'.$args[1].'.json');
-
-					if(array_key_exists($args[0], self::IMPORT_CLASSES))
-					{
-						$loadJsonSites = true;
-						$loadJsonRules = false;
-
-						$Shell_Program_Firewall_Config_Interface = self::IMPORT_CLASSES[$args[0]];
-						$Shell_Program_Firewall_Config_Interface = new $Shell_Program_Firewall_Config_Interface($this->_SHELL, $this->_objects);
-
-						try {
-							$counter = $Shell_Program_Firewall_Config_Interface->load($filename);
-						}
-						catch(\Exception $e) {
-							$this->_SHELL->throw($e);
-							$counter = -1;
-						}
-
-						$this->_SHELL->EOL();
-
-						switch($counter)
+						if($this->isSaving || !$this->hasChanges || (isset($args[2]) && $args[2] === 'force'))
 						{
-							case -1: {
-								$this->_SHELL->error("Une erreur s'est produite pendant le chargement de la configuration '".$args[1]."'", 'orange');
-								$this->_clearConfigs();
-								return false;
+							if(preg_match('#\.([^.\s]+)$#i', $args[0], $matches)) {
+								$filenameLength = (mb_strlen($args[0])-mb_strlen($matches[1])-1);
+								$basename = mb_substr($args[0], 0, $filenameLength);				// pathname or filename
+								$format = mb_strtolower($matches[1]);								// format (extension)
 							}
-							case 0:
-							case 1: {
-								$this->_SHELL->print($counter." règle a été chargée", 'green');
-								break;
+							else {
+								$basename = $args[0];												// pathname or filename
+								$format = 'json';													// format (extension)
 							}
-							default: {
-								$this->_SHELL->print($counter." règles ont été chargées", 'green');
-							}
-						}
-					}
-					elseif($args[0] !== 'json') {
-						$this->_SHELL->error("Le format '".$args[0]."' du fichier à charger n'est pas supporté", 'orange');
-						return false;
-					}
 
-					if(file_exists($filename))
-					{
-						if(is_readable($filename))
-						{
-							$json = file_get_contents($filename);
-
-							if($json !== false)
+							if(array_key_exists($format, self::IMPORT_CLASSES))
 							{
-								// @todo php 7.3
-								//$datas = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-								$datas = json_decode($json, true);
+								$status = true;
 
-								if($datas !== null)
+								$pathname = $this->_CONFIG->FIREWALL->configuration->paths->configs;
+								$pathname = rtrim($pathname, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR;
+
+								$filename = C\Tools::filename($basename.'.'.$format, $pathname);
+
+								$Shell_Program_Firewall_Config_Interface = self::IMPORT_CLASSES[$format];
+								$Shell_Program_Firewall_Config_Interface = new $Shell_Program_Firewall_Config_Interface($this->_SHELL, $this->_objects, $this->_siteFwProgram, $this->_addressFwProgram, $this->_ruleFwProgram);
+
+								try {
+									$counter = $Shell_Program_Firewall_Config_Interface->load($filename, $prefix);
+								}
+								catch(\Exception $e) {
+									$this->_SHELL->throw($e);
+									$counter = false;
+								}
+
+								$this->_SHELL->EOL();
+
+								if(C\TOOLS::is('int&&>=0', $counter))
 								{
+									switch($counter)
+									{
+										case 0:
+										case 1: {
+											$this->_SHELL->print($counter." règle a été chargée", 'green');
+											break;
+										}
+										default: {
+											$this->_SHELL->print($counter." règles ont été chargées", 'green');
+										}
+									}
+								}
+								else {
+									$this->_SHELL->error("Une erreur s'est produite pendant le chargement de la configuration '".$filename."'", 'orange');
+									$this->_clearConfigurations();
+									return true;
+								}
+
+								$this->_setFilename($filename, $prefix);
+
+								if($format !== 'json')
+								{
+									$filename = preg_replace('#\.([^.\s]+)$#i', '.json', $filename);
+									//$filename = C\Tools::filename($basename.'.json', $pathname);
+
 									try {
-										$status = $this->_loadConfigurations($datas, $loadJsonSites, $loadJsonRules);
+										$status = $this->_jsonConfig->loadSites($filename);
 									}
 									catch(\Exception $e) {
 										$this->_SHELL->throw($e);
 										$status = false;
 									}
 
-									if($status) {
-										$this->_filename = $filename;		// Toujours extension JSON
-										$this->_SHELL->print("Chargement de la configuration '".$args[1]."' terminée!", 'green');
-									}
-									else {
-										$this->_clearConfigs();
-										$this->_SHELL->error("Une erreur s'est produite pendant le chargement de la configuration '".$filename."'", 'orange');
+									if(!$status) {
+										$this->_SHELL->error("Impossible de charger les sites de la configuration '".$filename."'", 'orange');
 									}
 								}
+
+								if($status) {
+									$this->_setFilename($filename);			// Toujours extension JSON
+									$this->_SHELL->print("Chargement de la configuration '".$basename."' terminée!", 'green');
+								}
 								else {
-									$this->_SHELL->error("Le fichier de sauvegarde '".$filename."' n'a pas une structure JSON valide", 'orange');
+									$this->_clearConfigurations();
+									$this->_SHELL->error("Une erreur s'est produite pendant le chargement de la configuration '".$filename."'", 'orange');
 								}
 							}
 							else {
-								$this->_SHELL->error("Une erreur s'est produite pendant la lecture du fichier de sauvegarde '".$filename."'", 'orange');
+								$this->_SHELL->error("Le format '".$format."' du fichier à charger n'est pas supporté", 'orange');
+								return false;
 							}
 						}
 						else {
-							$this->_SHELL->error("Le fichier de sauvegarde '".$filename."' ne peut être lu", 'orange');
+							$this->_SHELL->error("Il est vivement recommandé de sauvegarder la configuration avant d'en charger une autre. Pour charger malgrés tout utilisez l'argument 'force'", 'orange');
 						}
 					}
 					else {
-						$this->_SHELL->error("Le fichier de sauvegarde '".$filename."' n'existe pas", 'orange');
+						$this->_SHELL->error("Un fichier de sauvegarde '".$this->_getFilename($prefix)."' a déjà été chargé pour ce prefix '".$prefix."'. Merci d'indiquer un autre préfix ou d'importer la configuration", 'orange');
 					}
 				}
-				else {
-					$this->_SHELL->error("Un fichier de sauvegarde '".$this->_filename."' a déjà été chargé", 'orange');
+				elseif($this->_isRecovery()) {
+					$this->_SHELL->error("Il n'est pas possible de charger une configuration après une récupération automatique sauf si vous indiquez un préfix", 'orange');
 				}
+				else {
+					$this->_SHELL->error("Un fichier de sauvegarde '".$this->_getFilename()."' a déjà été chargé. Merci d'indiquer un préfix lors du chargement ou d'importer la configuration", 'orange');
+				}
+
+				return true;
 			}
 
-			return $status;
+			return false;
 		}
 		// --------------------------------------------------
 
@@ -585,53 +609,27 @@
 		// --------------------------------------------------
 		public function autosave()
 		{
-			$config = $this->_CONFIG->FIREWALL->configuration;
+			$filename = $this->_getAsFilename();
 
-			if($config->autosave->status && !$this->isSaving && !$this->isAutoSaving && $this->hasChanges)
+			if($filename !== false && !$this->isSaving && !$this->isAutoSaving && $this->hasChanges)
 			{
 				$status = false;
-				$filename = $config->paths->autosave;
-				$filename = C\Tools::filename($filename);
 
-				$pathname = pathinfo($filename, PATHINFO_DIRNAME);
+				try {
+					list($items,) = $this->_getObjectsToSave(false);
+				}
+				catch(E\Message $e) {
+					$this->_SHELL->error("[AUTOSAVE] ".$e->getMessage(), 'orange');
+					return true;
+				}
 
-				if((!file_exists($filename) && is_writable($pathname)) || (file_exists($filename) && is_writable($filename)))
-				{
-					try {
-						list($items,) = $this->_getObjectsToSave();
-					}
-					catch(E\Message $e) {
-						$this->_SHELL->error("[AUTOSAVE] ".$e->getMessage(), 'orange');
-						return true;
-					}
+				$status = $this->_jsonConfig->save($filename, $items);
 
-					if(count($items) > 0)
-					{
-						// @todo php 7.3
-						//$json = json_encode($items, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
-						$json = json_encode($items, JSON_PRETTY_PRINT);
-
-						if($json !== false)
-						{
-							$status = file_put_contents($filename, $json, LOCK_EX);
-
-							if($status !== false) {
-								$this->_isAutoSaving();
-							}
-							else {
-								$this->_SHELL->error("[AUTOSAVE] Une erreur s'est produite pendant la sauvegarde du fichier de configuration '".$filename."'", 'orange');
-							}
-						}
-						else {
-							$this->_SHELL->error("[AUTOSAVE] Une erreur s'est produite pendant l'encodage de la configuration en JSON", 'orange');
-						}
-					}
-					else {
-						return true;
-					}
+				if($status) {
+					$this->_isAutoSaving();
 				}
 				else {
-					$this->_SHELL->error("[AUTOSAVE] Le dossier de sauvegarde '".$pathname."' ne peut être modifié", 'orange');
+					$this->_SHELL->error("[AUTOSAVE] Une erreur s'est produite pendant la sauvegarde du fichier de configuration '".$filename."'", 'orange');
 				}
 
 				return $status;
@@ -661,80 +659,69 @@
 
 				if(count($errObjects) > 0)
 				{
-					foreach($errObjects as $errObject){
-						$this->_SHELL->error("L'objet ".$errObject::OBJECT_NAME." '".$errObjects->name."' n'est pas valide", 'orange');
+					foreach($errObjects as $errObject) {
+						$this->_SHELL->error("L'objet '".$errObject::OBJECT_NAME."' '".$errObject->name."' n'est pas valide", 'orange');
 					}
 
 					return true;
 				}
 				elseif(array_key_exists('objects', $items))
 				{
-					// @todo php 7.3
-					//$json = json_encode($items['objects'], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
-					$json = json_encode($items['objects'], JSON_PRETTY_PRINT);
+					$status = $this->_jsonConfig->save($filename, $items['objects']);
 
-					if($json !== false)
+					if($status !== false)
 					{
-						$status = file_put_contents($filename, $json, LOCK_EX);
+						$this->_SHELL->print("Sauvegarde des objets terminée! (".$filename.")", 'green');
+						unset($filename);	// /!\ Important
 
-						if($status !== false)
+						if(array_key_exists('configs', $items))
 						{
-							$this->_SHELL->print("Sauvegarde des objets terminée! (".$filename.")", 'green');
-							unset($filename);	// /!\ Important
-
 							if(isset($args[0]))
 							{
-								$pathname = $this->_CONFIG->FIREWALL->configuration->paths->configs;
-								$filename = C\Tools::filename(rtrim($pathname, '/').'/'.$args[0].'.json');
+								$basename = $args[0];
 
-								if($this->_filename !== null && $this->_filename === $filename) {
+								$pathname = $this->_CONFIG->FIREWALL->configuration->paths->configs;
+								$pathBasename = C\Tools::filename(rtrim($pathname, '/').'/'.$basename);
+								$filename = $pathBasename.'.json';
+
+								if($filename === $this->_getFilename()) {
 									$args[1] = 'force';
 								}
 							}
-							elseif($this->_filename !== null) {
-								$filename = $this->_filename;
-								$args[0] = basename($this->_filename, '.json');
+							elseif($this->_isLoaded()) {
+								$filename = $this->_getFilename();
+								$pathBasename = mb_substr($filename, 0, -5);		// .json = 5
+								$basename = basename($filename, '.json');
 								$args[1] = 'force';
 							}
 
 							if(isset($filename))
 							{
-								$fileExists = file_exists($filename);
-
-								if(!$fileExists || (isset($args[1]) && $args[1] === 'force'))
+								if(!file_exists($filename) || (isset($args[1]) && $args[1] === 'force'))
 								{
-									$pathname = pathinfo($filename, PATHINFO_DIRNAME);
-
-									if((!$fileExists && is_writable($pathname)) || ($fileExists && is_writable($filename)))
+									foreach(array('json' => $this->_jsonConfig, 'csv' => $this->_csvConfig) as $format => $Config_Ext_Abstract)
 									{
-										if(array_key_exists('configs', $items))
-										{
-											// @todo php 7.3
-											//$json = json_encode($items['configs'], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
-											$json = json_encode($items['configs'], JSON_PRETTY_PRINT);
+										$filename = $pathBasename.'.'.$format;
 
-											if($json !== false) {
-												$status = file_put_contents($filename, $json, LOCK_EX);
-												$toolSaveStatus = ($status !== false);
-											}
-											else {
-												$toolSaveStatus = false;
-											}
+										try {
+											$status = $Config_Ext_Abstract->save($filename, $items['configs']);
+										}
+										catch(E\Message $e) {
+											$this->_SHELL->throw($e);
+											$status = false;
+										}
 
-											$Shell_Program_Firewall_Config_Extension_Csv = new Shell_Program_Firewall_Config_Extension_Csv($this->_SHELL, $this->_objects);
-											$adminSaveStatus = $Shell_Program_Firewall_Config_Extension_Csv->save($filename, $items['configs']);
-
-											if($toolSaveStatus && $adminSaveStatus) {												
-												$this->_isSaving();
-												$this->_SHELL->print("Sauvegarde de la configuration '".$args[0]."' terminée!", 'green');
-											}
-											else {
-												$this->_SHELL->error("Une erreur s'est produite pendant la sauvegarde du fichier de configuration '".$filename."'", 'orange');
-											}
+										if($status) {									
+											$this->_SHELL->print("Sauvegarde de la configuration '".$basename."' terminée! (".$filename.")", 'green');
+										}
+										else {
+											$this->_SHELL->error("Une erreur s'est produite pendant la sauvegarde du fichier de configuration '".$filename."'", 'orange');
+											break;
 										}
 									}
-									else {
-										$this->_SHELL->error("Impossible de sauvegarder la configuration dans '".$filename."'", 'orange');
+
+									if($status) {
+										$this->_isSaving();
 									}
 								}
 								else {
@@ -742,20 +729,18 @@
 								}
 							}
 							else {
-								$this->_SHELL->error("Merci d'indiquer le nom du fichier de sauvegarde", 'orange');
+								$this->_SHELL->error("Merci d'indiquer le nom du fichier de sauvegarde sans chemin ni extension. Example: myBackup", 'orange');
 							}
-						}
-						else {
-							$this->_SHELL->error("Une erreur s'est produite pendant l'écriture du fichier de sauvegarde '".$filename."'", 'orange');
 						}
 					}
 					else {
-						$this->_SHELL->error("Une erreur s'est produite pendant l'encodage des objets en JSON", 'orange');
+						$this->_SHELL->error("Une erreur s'est produite pendant l'écriture du fichier de sauvegarde '".$filename."'", 'orange');
 					}
 				}
 			}
 			else {
 				$this->_SHELL->error("Impossible de sauvegarder les objets dans '".$filename."'", 'orange');
+				$this->_SHELL->error("Vérifiez les droits d'écriture du fichier et le chemin '".$pathname."'", 'orange');
 			}
 
 			return $status;
@@ -768,7 +753,9 @@
 
 			if(isset($args[0]))
 			{
-				if(array_key_exists($args[0], self::IMPORT_CLASSES))
+				$format = $args[0];
+
+				if(array_key_exists($format, self::IMPORT_CLASSES))
 				{
 					if(isset($args[1]))
 					{
@@ -786,13 +773,15 @@
 
 						if(file_exists($filename) && is_readable($filename) && is_file($filename))
 						{
-							if($this->_isSaving || !$this->_hasChanges || (isset($args[2]) && $args[2] === 'force'))
+							$prefix = (isset($args[2]) && C\Tools::is('string&&!empty', $args[2])) ? ($args[2]) : (null);
+
+							if($this->isSaving || !$this->hasChanges || (isset($args[3]) && $args[3] === 'force'))
 							{
-								$Shell_Program_Firewall_Config_Interface = self::IMPORT_CLASSES[$args[0]];
-								$Shell_Program_Firewall_Config_Interface = new $Shell_Program_Firewall_Config_Interface($this->_SHELL, $this->_objects);
+								$Shell_Program_Firewall_Config_Interface = self::IMPORT_CLASSES[$format];
+								$Shell_Program_Firewall_Config_Interface = new $Shell_Program_Firewall_Config_Interface($this->_SHELL, $this->_objects, $this->_siteFwProgram, $this->_addressFwProgram, $this->_ruleFwProgram);
 								
 								try {
-									$counter = $Shell_Program_Firewall_Config_Interface->import($filename);
+									$counter = $Shell_Program_Firewall_Config_Interface->import($filename, $prefix);
 								}
 								catch(\Exception $e) {
 									$this->_SHELL->throw($e);
@@ -819,7 +808,7 @@
 									$this->_SHELL->print("Importation de la configuration '".$filename."' terminée!", 'green');
 								}
 								else {
-									$this->_clearConfigs();
+									$this->_resetLoad();
 									$this->_SHELL->error("Une erreur s'est produite pendant l'importation de la configuration '".$filename."'", 'orange');
 								}
 							}
@@ -838,7 +827,7 @@
 					}
 				}
 				else {
-					$this->_SHELL->error("Le format '".$args[0]."' du fichier à importer n'est pas supporté", 'orange');
+					$this->_SHELL->error("Le format '".$format."' du fichier à importer n'est pas supporté", 'orange');
 				}
 			}
 
@@ -852,8 +841,24 @@
 				$format = $args[0];
 				$force = (isset($args[1]) && $args[1] === 'force');
 
-				$Shell_Program_Firewall_Config_Helper_Export = new Shell_Program_Firewall_Config_Helper_Export($this->_SHELL, $this, $this->_objects);
-				$Shell_Program_Firewall_Config_Helper_Export->export($firewalls, $type, $format, $force);
+				try {
+					$errObjects = $this->_checkAllObjects();
+				}
+				catch(\Exception $e) {
+					$this->_SHELL->throw($e);
+					return true;
+				}
+
+				if(count($errObjects) > 0)
+				{
+					foreach($errObjects as $errObject) {
+						$this->_SHELL->error("L'objet '".$errObject::OBJECT_NAME."' '".$errObject->name."' n'est pas valide", 'orange');
+					}
+				}
+				else {
+					$Shell_Program_Firewall_Config_Helper_Export = new Shell_Program_Firewall_Config_Helper_Export($this->_SHELL, $this, $this->_objects);
+					$Shell_Program_Firewall_Config_Helper_Export->export($firewalls, $type, $format, $force);
+				}
 
 				return true;
 			}
@@ -869,8 +874,24 @@
 				$method = $args[1];
 				$site = $args[2];
 
-				$Shell_Program_Firewall_Config_Helper_Export = new Shell_Program_Firewall_Config_Helper_Export($this->_SHELL, $this, $this->_objects);
-				$Shell_Program_Firewall_Config_Helper_Export->copy($firewalls, $type, $format, $method, $site);
+				try {
+					$errObjects = $this->_checkAllObjects();
+				}
+				catch(\Exception $e) {
+					$this->_SHELL->throw($e);
+					return true;
+				}
+
+				if(count($errObjects) > 0)
+				{
+					foreach($errObjects as $errObject) {
+						$this->_SHELL->error("L'objet '".$errObject::OBJECT_NAME."' '".$errObject->name."' n'est pas valide", 'orange');
+					}
+				}
+				else {
+					$Shell_Program_Firewall_Config_Helper_Export = new Shell_Program_Firewall_Config_Helper_Export($this->_SHELL, $this, $this->_objects);
+					$Shell_Program_Firewall_Config_Helper_Export->copy($firewalls, $type, $format, $method, $site);
+				}
 
 				return true;
 			}
@@ -880,35 +901,23 @@
 
 		// TOOLS
 		// --------------------------------------------------
-		protected function _addressTypeToKey($type)
-		{
-			return $this->_typeToKey($type);
-		}
-
-		protected function _addressTypeToClass($type)
-		{
-			return $this->_typeToClass($type);
-		}
-
+		/**
+		  * @param $key string
+		  * @return false|string
+		  */
 		protected function _addressKeyToType($key)
 		{
-			return $this->_keyToType($key);
-		}
-
-		protected function _addressClassToType($class)
-		{
-			return $this->_classToType($class);
-		}
-
-		protected function _configKeyToType($key)
-		{
-			$types = array_keys(static::CONFIG_KEYS, $key, true);
+			$types = array_keys(static::ADDRESS_KEYS, $key, true);
 			return (count($types) === 1) ? (current($types)) : (false);
 		}
 
-		protected function _configClassToType($class)
+		/**
+		  * @param $key string
+		  * @return false|string
+		  */
+		protected function _configKeyToType($key)
 		{
-			$types = array_keys(static::CONFIG_CLASSES, $class, true);
+			$types = array_keys(static::CONFIG_KEYS, $key, true);
 			return (count($types) === 1) ? (current($types)) : (false);
 		}
 		// --------------------------------------------------

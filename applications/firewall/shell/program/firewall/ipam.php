@@ -11,6 +11,9 @@
 
 	class Shell_Program_Firewall_Ipam
 	{
+		const FIELD_IPAM_ATTRS = '__ipam__';
+
+
 		/*public function getObject($type, $id)
 		{
 			$results = $this->getObjects($type, $id, true);
@@ -86,9 +89,11 @@
 
 				if($cidrIsIPv4 && $subnetObject[Core\Api_Subnet::FIELD_ATTRv4] === null) {
 					$subnetObject[Core\Api_Subnet::FIELD_ATTRv4] = $subnet[Core\Api_Subnet::FIELD_ATTRv4];
+					//$subnetObject['attributeV4'] = $subnetObject[Core\Api_Subnet::FIELD_ATTRv4];
 				}
 				elseif($cidrIsIPv6 && $subnetObject[Core\Api_Subnet::FIELD_ATTRv6] === null) {
 					$subnetObject[Core\Api_Subnet::FIELD_ATTRv6] = $subnet[Core\Api_Subnet::FIELD_ATTRv6];
+					//$subnetObject['attributeV6'] = $subnetObject[Core\Api_Subnet::FIELD_ATTRv6];
 				}
 				elseif(!$cidrIsIPv4 && !$cidrIsIPv6) {
 					throw new Exception("Unable to know the IP version of this subnet '".$subnetName."'", E_USER_ERROR);
@@ -122,10 +127,12 @@
 				$addressIsIPv6 = ($address[Core\Api_Host::FIELD_ATTRv6] !== null);
 
 				if($addressIsIPv4 && $addressObject[Core\Api_Host::FIELD_ATTRv4] === null) {
-					$addressObject[Core\Api_Host::FIELD_ATTRv4] = $address[Core\Api_Subnet::FIELD_ATTRv4];
+					$addressObject[Core\Api_Host::FIELD_ATTRv4] = $address[Core\Api_Host::FIELD_ATTRv4];
+					//$addressObject['attributeV4'] = $addressObject[Core\Api_Host::FIELD_ATTRv4];
 				}
 				elseif($addressIsIPv6 && $addressObject[Core\Api_Host::FIELD_ATTRv6] === null) {
-					$addressObject[Core\Api_Host::FIELD_ATTRv6] = $address[Core\Api_Subnet::FIELD_ATTRv6];
+					$addressObject[Core\Api_Host::FIELD_ATTRv6] = $address[Core\Api_Host::FIELD_ATTRv6];
+					//$addressObject['attributeV6'] = $addressObject[Core\Api_Host::FIELD_ATTRv6];
 				}
 				elseif(!$addressIsIPv4 && !$addressIsIPv6) {
 					throw new Exception("Unable to know the IP version of this address '".$address['ip']."'", E_USER_ERROR);
@@ -166,17 +173,56 @@
 		{
 			$results = array();
 
-			$aIPAM = Ipam\Api_Abstract::getIpam();
+			$IpamEnabled = Ipam\Orchestrator::hasInstance();
 
-			if(C\Tools::is('array&&count>0', $aIPAM))
+			if($IpamEnabled)
 			{
 				$subnets = array();
+				$Ipam_Orchestrator = Ipam\Orchestrator::getInstance();
 
-				foreach($aIPAM as $key => $IPAM)
+				foreach($Ipam_Orchestrator as $Ipam_Service)
 				{
-					Ipam\Api_Abstract::enableIpam($key);
+					$Ipam_Orchestrator->useServiceId($Ipam_Service->id);
+
 					$cidrSubnets = Ipam\Api_Subnet::searchCidrSubnets($search, null, null, null, $strict);
+
+					/**
+					  * Toujours rechercher un nom de subnet avec $search même si des résultats CIDR subnet ont été trouvés
+					  * Un subnet peut se nommer par son CIDR dans l'IPAM donc il faut toujours effectuer la recherche
+					  */
 					$subnetNames = Ipam\Api_Subnet::searchSubnetNames($search, null, null, null, null, $strict);
+
+					/**
+					  * Recherche les entrées correspondants au nom des résultats de la recherche par subnet
+					  * Permet d'obtenir l'ensemble des entrées correspondant à un subnet en partant d'un subnet
+					  *
+					  * Par exemple: Je recherche un subnet V4, je trouve un nom, je recherche ce nom, je trouve le subnet V6
+					  */
+					if(C\Tools::is('array&&count>0', $cidrSubnets))
+					{
+						if(!is_array($subnetNames)) {
+							$subnetNames = array();
+						}
+
+						foreach($cidrSubnets as $index => $cidrSubnet)
+						{
+							if(C\Tools::is('string&&!empty', $cidrSubnet[Ipam\Api_Subnet::FIELD_NAME]))
+							{
+								$_subnetNames = Ipam\Api_Subnet::searchSubnetNames($cidrSubnet[Ipam\Api_Subnet::FIELD_NAME], null, null, null, null, $strict);
+
+								if(C\Tools::is('array&&count>0', $_subnetNames))
+								{
+									$subnetNames = array_merge($subnetNames, $_subnetNames);
+
+									/**
+									  * /!\ Puisque l'on recherche dans un second temps par nom
+									  * alors on aura des doublons si on ne réinitialise par les résultats de subnets
+									  */
+									unset($cidrSubnets[$index]);
+								}
+							}
+						}
+					}
 
 					foreach(array($cidrSubnets, $subnetNames) as $_subnets)
 					{
@@ -194,7 +240,8 @@
 					$subnetDatas = array(
 						Core\Api_Subnet::FIELD_NAME => $subnetName,
 						Core\Api_Subnet::FIELD_ATTRv4 => null,
-						Core\Api_Subnet::FIELD_ATTRv6 => null
+						Core\Api_Subnet::FIELD_ATTRv6 => null,
+						self::FIELD_IPAM_ATTRS => $subnet
 					);
 
 					$subnetObject = new ArrayObject($subnetDatas, ArrayObject::ARRAY_AS_PROPS);
@@ -222,18 +269,57 @@
 		{
 			$results = array();
 
-			$aIPAM = Ipam\Api_Abstract::getIpam();
+			$IpamEnabled = Ipam\Orchestrator::hasInstance();
 
-			if(C\Tools::is('array&&count>0', $aIPAM))
+			if($IpamEnabled)
 			{
 				$addresses = array();
+				$Ipam_Orchestrator = Ipam\Orchestrator::getInstance();
 
-				foreach($aIPAM as $key => $IPAM)
+				foreach($Ipam_Orchestrator as $Ipam_Service)
 				{
-					Ipam\Api_Abstract::enableIpam($key);
+					$Ipam_Orchestrator->useServiceId($Ipam_Service->id);
+
 					$addressIps = Ipam\Api_Address::searchIpAddresses($search, null, $strict);
+
+					/**
+					  * Toujours rechercher un nom d'hôte avec $search même si des résultats IP ont été trouvés
+					  * Un hôte peut se nommer par son IP dans l'IPAM donc il faut toujours effectuer la recherche
+					  */
 					$addressNames = Ipam\Api_Address::searchAddressNames($search, null, null, $strict);
 					$addressDescs = Ipam\Api_Address::searchAddressDescs($search, null, null, $strict);
+
+					/**
+					  * Recherche les entrées correspondants au nom des résultats de la recherche par IP
+					  * Permet d'obtenir l'ensemble des entrées correspondant à une IP en partant d'une IP
+					  *
+					  * Par exemple: Je recherche une IPv4, je trouve un nom, je recherche ce nom, je trouve l'IPv6
+					  */
+					if(C\Tools::is('array&&count>0', $addressIps))
+					{
+						if(!is_array($addressNames)) {
+							$addressNames = array();
+						}
+
+						foreach($addressIps as $index => $addressIp)
+						{
+							if(C\Tools::is('string&&!empty', $addressIp[Ipam\Api_Address::FIELD_NAME]))
+							{
+								$_addressNames = Ipam\Api_Address::searchAddressNames($addressIp[Ipam\Api_Address::FIELD_NAME], null, null, $strict);
+
+								if(C\Tools::is('array&&count>0', $_addressNames))
+								{
+									$addressNames = array_merge($addressNames, $_addressNames);
+
+									/**
+									  * /!\ Puisque l'on recherche dans un second temps par nom
+									  * alors on aura des doublons si on ne réinitialise par les résultats d'IPs
+									  */
+									unset($addressIps[$index]);
+								}
+							}
+						}
+					}
 
 					foreach(array($addressIps, $addressNames, $addressDescs) as $_addresses)
 					{
@@ -243,7 +329,7 @@
 					}
 				}
 
-				foreach($addresses as &$address)
+				foreach($addresses as $address)
 				{
 					$addressName = $address[Ipam\Api_Address::FIELD_NAME];
 					$addressName = preg_replace('#(^\s+)|(\s+$)#i', '', $addressName);
@@ -255,7 +341,8 @@
 					$addressDatas = array(
 						Core\Api_Host::FIELD_NAME => $addressName,
 						Core\Api_Host::FIELD_ATTRv4 => null,
-						Core\Api_Host::FIELD_ATTRv6 => null
+						Core\Api_Host::FIELD_ATTRv6 => null,
+						self::FIELD_IPAM_ATTRS => $address
 					);
 
 					$addressObject = new ArrayObject($addressDatas, ArrayObject::ARRAY_AS_PROPS);

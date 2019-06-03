@@ -11,7 +11,7 @@
 		const FIELD_ATTRv4 = 'networkV4';
 		const FIELD_ATTRv6 = 'networkV6';
 		const FIELD_ATTRS = array(
-			'networkV4', 'networkV6'
+			4 => 'networkV4', 6 => 'networkV6'
 		);
 		const FIELD_ATTR_FCT = 'network';
 		const FIELD_ATTRS_FCT = 'networks';
@@ -19,17 +19,31 @@
 		const SEPARATOR = '-';
 
 		protected $_datas = array(
+			'_id_' => null,
 			'name' => null,
 			'networkV4' => null,
 			'networkV6' => null,
 		);
 
 
-		public function __construct($name = null, $networkV4 = null, $networkV6 = null)
+		/**
+		  * @param string $id ID
+		  * @param string $name Name
+		  * @param string $networkV4 Network v4
+		  * @param string $networkV6 Network v6
+		  * @return $this
+		  */
+		public function __construct($id = null, $name = null, $networkV4 = null, $networkV6 = null)
 		{
+			$this->id($id);
 			$this->name($name);
 			$this->network($networkV4);
 			$this->network($networkV6);
+		}
+
+		public function configure($address)
+		{
+			return $this->network($address);
 		}
 
 		public function network($network)
@@ -83,14 +97,14 @@
 				case Api_Host::OBJECT_TYPE:
 				{
 					if($this->isIPv4() && $addressApi->isIPv4() && 
-							Tools::IpToBin($addressApi->attributeV4) > Tools::IpToBin($this->beginV4) &&
-							Tools::IpToBin($addressApi->attributeV4) < Tools::IpToBin($this->finishV4)
+							Tools::IpToBin($addressApi->attributeV4) >= Tools::IpToBin($this->beginV4) &&
+							Tools::IpToBin($addressApi->attributeV4) <= Tools::IpToBin($this->finishV4)
 					) {
 						return true;
 					}
-					elseif($this->isIPv6()&& $addressApi->isIPv6() && 
-							Tools::IpToBin($addressApi->attributeV6) > Tools::IpToBin($this->beginV6) &&
-							Tools::IpToBin($addressApi->attributeV6) < Tools::IpToBin($this->finishV6)
+					elseif($this->isIPv6() && $addressApi->isIPv6() && 
+							Tools::IpToBin($addressApi->attributeV6) >= Tools::IpToBin($this->beginV6) &&
+							Tools::IpToBin($addressApi->attributeV6) <= Tools::IpToBin($this->finishV6)
 					) {
 						return true;
 					}
@@ -105,20 +119,20 @@
 						$firstIPv4 = Tools::firstSubnetIp($addressApi->attributeV4);
 						$lastIPv4 = Tools::lastSubnetIp($addressApi->attributeV4);
 
-						if(Tools::IpToBin($firstIPv4) > Tools::IpToBin($this->beginV4) &&
-							Tools::IpToBin($lastIPv4) < Tools::IpToBin($this->finishV4)
+						if(Tools::IpToBin($firstIPv4) >= Tools::IpToBin($this->beginV4) &&
+							Tools::IpToBin($lastIPv4) <= Tools::IpToBin($this->finishV4)
 						) {
 							return true;
 						}
 					}
 
-					if($this->isIPv6()&& $addressApi->isIPv6())
+					if($this->isIPv6() && $addressApi->isIPv6())
 					{
 						$firstIPv6 = Tools::firstSubnetIp($addressApi->attributeV6);
 						$lastIPv6 = Tools::lastSubnetIp($addressApi->attributeV6);
 
-						if(Tools::IpToBin($firstIPv6) > Tools::IpToBin($this->beginV6) &&
-							Tools::IpToBin($lastIPv6) < Tools::IpToBin($this->finishV6)
+						if(Tools::IpToBin($firstIPv6) >= Tools::IpToBin($this->beginV6) &&
+							Tools::IpToBin($lastIPv6) <= Tools::IpToBin($this->finishV6)
 						) {
 							return true;
 						}
@@ -130,14 +144,14 @@
 				case self::OBJECT_TYPE:
 				{
 					if($this->isIPv4() && $addressApi->isIPv4() && 
-							Tools::IpToBin($addressApi->beginV4) > Tools::IpToBin($this->beginV4) &&
-							Tools::IpToBin($addressApi->finishV4) < Tools::IpToBin($this->finishV4)
+							Tools::IpToBin($addressApi->beginV4) >= Tools::IpToBin($this->beginV4) &&
+							Tools::IpToBin($addressApi->finishV4) <= Tools::IpToBin($this->finishV4)
 					) {
 						return true;
 					}
-					elseif($this->isIPv6()&& $addressApi->isIPv6() && 
-							Tools::IpToBin($addressApi->beginV6) > Tools::IpToBin($this->beginV6) &&
-							Tools::IpToBin($addressApi->finishV6) < Tools::IpToBin($this->finishV6)
+					elseif($this->isIPv6() && $addressApi->isIPv6() && 
+							Tools::IpToBin($addressApi->beginV6) >= Tools::IpToBin($this->beginV6) &&
+							Tools::IpToBin($addressApi->finishV6) <= Tools::IpToBin($this->finishV6)
 					) {
 						return true;
 					}

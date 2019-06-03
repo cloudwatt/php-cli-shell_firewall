@@ -11,8 +11,10 @@
 	{
 		const EXPORT_FORMAT_CLASS = array(
 			'cisco_asa' => 'App\Firewall\Core\Template_Cisco_Asa',
-			'junos' => 'App\Firewall\Core\Template_Juniper_Junos',
-			'junos_set' => 'App\Firewall\Core\Template_Juniper_Junos_Set',
+			'cisco_asa-dap' => 'App\Firewall\Core\Template_Cisco_Asa_Dap',
+			'juniper_junos' => 'App\Firewall\Core\Template_Juniper_Junos',
+			'juniper_junos-set' => 'App\Firewall\Core\Template_Juniper_Junos_Set',
+			'web_html' => 'App\Firewall\Core\Template_Web_Html',
 		);
 
 		const COPY_METHOD = array(
@@ -27,170 +29,197 @@
 
 		public function copy(array $firewalls, $type, $format, $method, $site)
 		{
-			$exports = $this->_export($firewalls, $type, $format, true);
-
-			if($exports !== false)
+			if(array_key_exists($site, $firewalls))
 			{
-				$this->_SHELL->EOL();
+				$firewalls = array($site => $firewalls[$site]);
+				$exports = $this->_export($firewalls, $type, $format, true);
 
-				if(array_key_exists($site, $exports))
+				if($exports !== false)
 				{
-					$exportFile = $exports[$site];
+					$this->_SHELL->EOL();
 
-					if(array_key_exists($method, self::COPY_METHOD))
+					if(array_key_exists($site, $exports))
 					{
-						$sitesConfig = $this->_CONFIG->FIREWALL->sites;
+						$exportFile = $exports[$site];
 
-						if(array_key_exists($site, $firewalls) && isset($sitesConfig->{$site}))
+						if(array_key_exists($method, self::COPY_METHOD))
 						{
-							$siteConfig = $sitesConfig->{$site};
-							unset($sitesConfig);
+							$sitesConfig = $this->_CONFIG->FIREWALL->sites;
 
-							switch($method)
+							if(isset($sitesConfig->{$site}))
 							{
-								case 'scp':
+								$siteConfig = $sitesConfig->{$site};
+								unset($sitesConfig);
+
+								switch($method)
 								{
-									if($siteConfig->scp === true)
+									case 'scp':
 									{
-										$sshIp = $siteConfig->ip;
-										$sshPort = $siteConfig->ssh_remotePort;
-										$sshOptions = null;
-
-										if($sshIp !== false && $sshPort !== false)
+										if($siteConfig->scp === true)
 										{
-											$sshBastionHost = $siteConfig->ssh_bastionHost;
-											$sshBastionPort = $siteConfig->ssh_bastionPort;
-											$sshPortForwarding = $siteConfig->ssh_portForwarding;
+											$sshIp = $siteConfig->ip;
+											$sshPort = $siteConfig->ssh_remotePort;
+											$sshOptions = null;
 
-											if($sshBastionHost !== false && $sshBastionPort !== false && $sshPortForwarding !== false)
+											if($sshIp !== false && $sshPort !== false)
 											{
-												list($sshSysLogin, $sshSysPassword) = $this->_getCredentials($siteConfig, 'ssh');
+												$sshBastionHost = $siteConfig->ssh_bastionHost;
+												$sshBastionPort = $siteConfig->ssh_bastionPort;
+												$sshPortForwarding = $siteConfig->ssh_portForwarding;
 
-												if($sshSysLogin !== false)
+												if($sshBastionHost !== false && $sshBastionPort !== false && $sshPortForwarding !== false)
 												{
-													$bastionSSH = new Network\Ssh($sshIp, $sshPort, $sshBastionHost, $sshBastionPort, $sshPortForwarding);
+													list($sshSysLogin, $sshSysPassword) = $this->_getCredentials($siteConfig, 'ssh');
 
-													if($sshSysPassword === false) {
-														$bastionSSH->useSshAgent($sshSysLogin);
+													if($sshSysLogin !== false)
+													{
+														$bastionSSH = new Network\Ssh($sshIp, $sshPort, $sshBastionHost, $sshBastionPort, $sshPortForwarding);
+
+														if($sshSysPassword === false) {
+															$bastionSSH->useSshAgent($sshSysLogin);
+														}
+														else {
+															$bastionSSH->setCredentials($sshSysLogin, $sshSysPassword);
+														}
+
+														$tunnelIsConnected = $bastionSSH->connect();
+
+														if(!$tunnelIsConnected) {
+															$this->_SHELL->error("Impossible de se connecter en SSH au bastion du site '".$site."' (".$sshBastionHost.":".$sshBastionPort.")", 'orange');
+															$bastionSSH->disconnect();
+															return false;
+														}
+
+														$sshIp = '127.0.0.1';
+														$sshPort = $sshPortForwarding;
+														$sshOptions = array(
+															'LogLevel=ERROR',
+															'StrictHostKeyChecking=no',
+															'UserKnownHostsFile=/dev/null'
+														);
+
+														$this->_SHELL->print('SSH tunnel is established!', 'green');
 													}
 													else {
-														$bastionSSH->setCredentials($sshSysLogin, $sshSysPassword);
-													}
-
-													$tunnelIsConnected = $bastionSSH->connect();
-
-													if(!$tunnelIsConnected) {
-														$this->_SHELL->error("Impossible de se connecter en SSH au bastion du site '".$site."' (".$sshBastionHost.":".$sshBastionPort.")", 'orange');
-														$bastionSSH->disconnect();
+														$this->_SHELL->error("Identifiant (et mot de passe) système pour le SSH manquants", 'orange');
 														return false;
 													}
-
-													$sshIp = '127.0.0.1';
-													$sshPort = $sshPortForwarding;
-													$sshOptions = array(
-														'LogLevel=ERROR',
-														'StrictHostKeyChecking=no',
-														'UserKnownHostsFile=/dev/null'
-													);
-
-													$this->_SHELL->print('SSH tunnel is established!', 'green');
-												}
-												else {
-													$this->_SHELL->error("Identifiant (et mot de passe) système pour le SSH manquants", 'orange');
-													return false;
-												}
-											}
-
-											list($sshNetLogin, $sshNetPassword) = $this->_getCredentials($siteConfig, 'scp');
-
-											if($sshNetLogin !== false)
-											{
-												$remoteSSH = new Network\Ssh($sshIp, $sshPort, null, null, null, false);
-												$remoteSSH->setOptions($sshOptions);
-
-												if($sshNetPassword === false) {
-													$remoteSSH->useSshAgent($sshNetLogin);
-												}
-												else {
-													$remoteSSH->setCredentials($sshNetLogin, $sshNetPassword);
 												}
 
-												$sessionIsConnected = $remoteSSH->connect();
+												list($sshNetLogin, $sshNetPassword) = $this->_getCredentials($siteConfig, 'scp');
 
-												if($sessionIsConnected)
+												if($sshNetLogin !== false)
 												{
-													$this->_SHELL->print('SSH session is established!', 'green');
+													$remoteSSH = new Network\Ssh($sshIp, $sshPort, null, null, null, false);
+													$remoteSSH->setOptions($sshOptions);
 
-													/**
-													  * Supprime ^M (\r)
-													  */
-													switch($siteConfig->os)
-													{
-														case 'juniper-junos': {
-															$fileContents = file_get_contents($exportFile);
-															$fileContents = str_replace("\r", '', $fileContents);
-															file_put_contents($exportFile, $fileContents, LOCK_EX);
-															break;
-														}
-													}
-													
-													$scpRemoteFile = $siteConfig->scp_remoteFile;
-													$status = $remoteSSH->putFile($exportFile, $scpRemoteFile);
-
-													if($status) {
-														$this->_SHELL->print("Copie configuration '".$scpRemoteFile."' terminée!", 'green');
+													if($sshNetPassword === false) {
+														$remoteSSH->useSshAgent($sshNetLogin);
 													}
 													else {
-														$this->_SHELL->error("Impossible d'envoyer en SSH le fichier '".$exportFile."' au site '".$site."' (".$scpRemoteFile.")", 'orange');
+														$remoteSSH->setCredentials($sshNetLogin, $sshNetPassword);
 													}
+
+													$sessionIsConnected = $remoteSSH->connect();
+
+													if($sessionIsConnected)
+													{
+														$this->_SHELL->print('SSH session is established!', 'green');
+
+														/**
+														  * Supprime ^M (\r)
+														  */
+														switch($siteConfig->os)
+														{
+															case 'juniper-junos': {
+																$fileContents = file_get_contents($exportFile);
+																$fileContents = str_replace("\r", '', $fileContents);
+																file_put_contents($exportFile, $fileContents, LOCK_EX);
+																break;
+															}
+														}
+														
+														$scpRemoteFile = $siteConfig->scp_remoteFile;
+
+														$isAliveID = 0;
+
+														$waitingCallback = function(C\Process $scpProcess) use (&$isAliveID) {
+															$message = $this->_SHELL->format('Please wait for SCP transfer! (ID: '.$isAliveID++.') (PID: '.$scpProcess->pid.')', 'blue');
+															$this->_SHELL->terminal->updateMessage($message);
+														};
+
+														$this->_SHELL->EOL();
+
+														try {
+															$status = $remoteSSH->putFile($exportFile, $scpRemoteFile, false, 0644, $waitingCallback, 2);
+														}
+														catch(E\Message $e) {
+															$this->_SHELL->error($e->getMessage(), 'orange');
+															$status = false;
+														}
+														catch(\Exception $e) {
+															$this->_SHELL->error("SCP ERROR: ".$e->getMessage(), 'red');
+															$status = false;
+														}
+
+														if($status) {
+															$this->_SHELL->print("Copie configuration '".$scpRemoteFile."' terminée!", 'green');
+														}
+														else {
+															$this->_SHELL->error("Impossible d'envoyer en SSH le fichier '".$exportFile."' au site '".$site."' (".$scpRemoteFile.")", 'orange');
+														}
+													}
+													else {
+														$this->_SHELL->error("Impossible de se connecter en SSH au site '".$site."' (".$sshIp.":".$sshPort.")", 'orange');
+														$status = false;
+													}
+
+													$remoteSSH->disconnect();
 												}
 												else {
-													$this->_SHELL->error("Impossible de se connecter en SSH au site '".$site."' (".$sshIp.":".$sshPort.")", 'orange');
+													$this->_SHELL->error("Identifiant (et mot de passe) réseau pour le SSH manquants", 'orange');
 													$status = false;
 												}
 
-												$remoteSSH->disconnect();
+												if(isset($bastionSSH)) {
+													$bastionSSH->disconnect();
+												}
+
+												return $status;
 											}
 											else {
-												$this->_SHELL->error("Identifiant (et mot de passe) réseau pour le SSH manquants", 'orange');
-												$status = false;
+												$this->_SHELL->error("IP et port SSH absents pour ce site '".$site."'", 'orange');
 											}
-
-											if(isset($bastionSSH)) {
-												$bastionSSH->disconnect();
-											}
-
-											return $status;
 										}
 										else {
-											$this->_SHELL->error("IP et port SSH absents pour ce site '".$site."'", 'orange');
+											$this->_SHELL->error("SCP est désactivé pour ce site '".$site."'", 'orange');
 										}
-									}
-									else {
-										$this->_SHELL->error("SCP est désactivé pour ce site '".$site."'", 'orange');
-									}
 
-									break;
+										break;
+									}
+									default: {
+										$this->_SHELL->error("La méthode '".$method."' n'est pas supportée", 'orange');
+									}
 								}
-								default: {
-									$this->_SHELL->error("La méthode '".$method."' n'est pas supportée", 'orange');
-								}
+							}
+							else {
+								$this->_SHELL->error("Le configuration du site '".$site."' n'existe pas", 'orange');
 							}
 						}
 						else {
-							$this->_SHELL->error("Le site '".$site."' n'est pas activé", 'orange');
+							$this->_SHELL->error("La méthode '".$method."' n'est pas supportée", 'orange');
 						}
 					}
 					else {
-						$this->_SHELL->error("La méthode '".$method."' n'est pas supportée", 'orange');
+						$this->_SHELL->error("La configuration correspondante au site '".$site."' n'a pas été trouvée", 'orange');
 					}
 				}
 				else {
-					$this->_SHELL->error("La configuration correspondante au site '".$site."' n'a pas été trouvée", 'orange');
+					$this->_SHELL->error("Une erreur s'est produite durant l'export de la configuration", 'orange');
 				}
 			}
 			else {
-				$this->_SHELL->error("Une erreur s'est produite durant l'export de la configuration", 'orange');
+				$this->_SHELL->error("Le site '".$site."' n'est pas activé", 'orange');
 			}
 
 			return false;
@@ -315,33 +344,6 @@
 				$suffix = '_'.$suffix;
 			}
 
-			$loginCredential = $prefix.'loginCredential'.$suffix;
-			$loginEnvVarName = $prefix.'loginEnvVarName'.$suffix;
-			$passwordCredential = $prefix.'passwordCredential'.$suffix;
-			$passwordEnvVarName = $prefix.'passwordEnvVarName'.$suffix;
-
-			if($siteConfig->key_exists($loginCredential) && C\Tools::is('string&&!empty', $siteConfig[$loginCredential])) {
-				$loginCredential = $siteConfig[$loginCredential];
-			}
-			elseif($siteConfig->key_exists($loginEnvVarName) && C\Tools::is('string&&!empty', $siteConfig[$loginEnvVarName])) {
-				$loginEnvVarName = $siteConfig[$loginEnvVarName];
-				$loginCredential = getenv($loginEnvVarName);
-			}
-			else {
-				$loginCredential = false;
-			}
-
-			if($siteConfig->key_exists($passwordCredential) && C\Tools::is('string&&!empty', $siteConfig[$passwordCredential])) {
-				$passwordCredential = $siteConfig[$passwordCredential];
-			}
-			elseif($siteConfig->key_exists($passwordEnvVarName) && C\Tools::is('string&&!empty', $siteConfig[$passwordEnvVarName])) {
-				$passwordEnvVarName = $siteConfig[$passwordEnvVarName];
-				$passwordCredential = getenv($passwordEnvVarName);
-			}
-			else {
-				$passwordCredential = false;
-			}
-
-			return array($loginCredential, $passwordCredential);
+			return C\Tools::getCredentials($siteConfig, $prefix, $suffix, false, false);
 		}
 	}

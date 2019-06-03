@@ -4,10 +4,12 @@ This repository is the addon for PHP-CLI SHELL about FIREWALL (acl) service.
 With this addon you can create ACLs (monosite, failover and fullmesh) and generate template for your firewall appliance.  
 It is possible to upload ACLs config file to firewall with SCP. For SCP, you can use an SSH bastion.    
 
-For the moment, there are 2 templates:
+For the moment, there are 3 templates:
 * Juniper JunOS  
-  __there are 2 templates for JunOS: one formated with {} and one with set commands__
-* Cisco ASA   
+  __there are 2 templates for Juniper JunOS: one formated with {} and one with set commands__
+* Cisco ASA  
+  __there are 2 templates for Cisco ASA: one for the firewall itself and one for VPN DAP (Dynamic Access Policies)__
+* Web HTML  
 
 ACL monosite:
 * basic ACL, source(s), destination(s), no automation. For this ACL category you can not enable fullmesh option!  
@@ -28,24 +30,23 @@ __*https://launchpad.net/~ondrej/+archive/ubuntu/php*__
 * apt update
 
 You have to install a PHP version >= 7.1:
-* apt update
-* apt install php7.2-cli php7.2-mbstring php7.2-readline php7.2-curl  
-__Do not forget to install php7.2-curl if you use PHPIPAM__
+* apt install php7.3-cli php7.3-mbstring php7.3-readline php7.3-curl  
+__Do not forget to install php7.3-curl if you use PHPIPAM__
 
 #### REPOSITORIES
 * git clone https://github.com/cloudwatt/php-cli-shell_base
-* git checkout tags/v2.0
+* git checkout tags/v2.1
 * git clone https://github.com/cloudwatt/php-cli-shell_firewall
-* git checkout tags/v2.0
+* git checkout tags/v2.1
 * Merge these two repositories
 
 #### PHPIPAM (Optionnal)
 If you have PHPIPAM and you want object name autocompletion, you have to perform these steps:
 * git clone https://github.com/cloudwatt/php-cli-shell_phpipam
-* git checkout tags/v2.0
+* git checkout tags/v2.1
 * Merge this repository with two previous repositories (base and firewall)
 * Install PHP-CLI SHELL for PHPIPAM with README helper  
-  https://github.com/cloudwatt/php-cli-shell_phpipam/blob/master/README.md
+  https://github.com/cloudwatt/php-cli-shell_phpipam
 
 
 #### CONFIGURATION FILE

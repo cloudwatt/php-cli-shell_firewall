@@ -10,6 +10,9 @@
 		const OBJECT_NAME = 'protocol';
 
 		const FIELD_NAME = 'name';
+		const FIELD_ATTRS = array(
+			'protocol'
+		);
 
 		const PROTO_SEPARATOR = '/';
 		const PROTO_RANGE_SEPARATOR = '-';
@@ -25,13 +28,21 @@
 		  * @var array
 		  */
 		protected $_datas = array(
+			'_id_' => null,
 			'name' => null,
 			'protocol' => null,
 		);
 
 
-		public function __construct($name = null, $protocol = null)
+		/**
+		  * @param string $id ID
+		  * @param string $name Name
+		  * @param string $protocol Protocol
+		  * @return $this
+		  */
+		public function __construct($id = null, $name = null, $protocol = null)
 		{
+			$this->id($id);
 			$this->name($name);
 			$this->protocol($protocol);
 		}
@@ -39,8 +50,8 @@
 		/**
 		  * Sets protocol name and options
 		  *
-		  * @param $protocol string Protocol name with or not protocol options
-		  * @param $options string Protocol options
+		  * @param string $protocol Protocol name with or not protocol options
+		  * @param string $options Protocol options
 		  * @return bool
 		  */
 		public function protocol($protocol, $options = null)
@@ -65,7 +76,7 @@
 		/**
 		  * Sets protocol options
 		  *
-		  * @param $options string Protocol options
+		  * @param string $options Protocol options
 		  * @return bool
 		  */
 		public function options($options)
@@ -79,8 +90,8 @@
 		/**
 		  * Sets protocol name and options
 		  *
-		  * @param $protocol string
-		  * @param $options string
+		  * @param string $protocol
+		  * @param string $options
 		  * @return bool
 		  */
 		protected function _protocol($protocol, $options = null)
@@ -132,7 +143,7 @@
 
 			foreach($ports as $port)
 			{
-				if(C\Tools::is('int&&<=0', $port) || $port > 65535) {
+				if(!(C\Tools::is('int&&>0', $port) && $port < 65535)) {
 					return false;
 				}
 			}
@@ -176,10 +187,8 @@
 		public function isValid($returnInvalidAttributes = false)
 		{		
 			$tests = array(
-				'string&&!empty' => array(
-					self::FIELD_NAME,
-					'protocol'
-				)
+				array(self::FIELD_NAME => 'string&&!empty'),
+				array('protocol' => 'string&&!empty'),
 			);
 
 			return $this->_isValid($tests, $returnInvalidAttributes);
@@ -207,6 +216,58 @@
 			return (count($parts) === 2) ? ($parts[1]) : (null);
 		}
 
+		public function includes(Api_Protocol $protocolApi)
+		{
+			return $this->_includes($protocolApi, false);
+		}
+
+		public function overlap(Api_Protocol $protocolApi)
+		{
+			return $this->_includes($protocolApi, true);
+		}
+
+		protected function _includes(Api_Protocol $protocolApi, $overlap = false)
+		{
+			$selfProtoName = $this->protocolName;
+			$otherProtoName = $protocolApi->protocolName;
+
+			if($selfProtoName === 'ip' || $otherProtoName === 'ip') {
+				return true;
+			}
+			elseif($selfProtoName === $otherProtoName)
+			{
+				$selfProtoOptions = $this->protocolOptions;
+				$otherProtoOptions = $protocolApi->protocolOptions;
+
+				if($selfProtoOptions === $otherProtoOptions) {
+					return true;
+				}
+				else
+				{
+					$selfProtoOptions = explode(self::PROTO_RANGE_SEPARATOR, $selfProtoOptions, 2);
+					$otherProtoOptions = explode(self::PROTO_RANGE_SEPARATOR, $otherProtoOptions, 2);
+
+					$selfProtoOptions = array_pad($selfProtoOptions, 2, $selfProtoOptions[0]);
+					$otherProtoOptions = array_pad($otherProtoOptions, 2, $otherProtoOptions[0]);
+
+					if(!$overlap) {
+						return ($selfProtoOptions[0] <= $otherProtoOptions[0] && $selfProtoOptions[1] >= $otherProtoOptions[1]);
+					}
+					else
+					{
+						return (
+							($selfProtoOptions[0] <= $otherProtoOptions[0] && $selfProtoOptions[1] >= $otherProtoOptions[1]) ||
+							($selfProtoOptions[0] >= $otherProtoOptions[0] && $selfProtoOptions[1] <= $otherProtoOptions[1]) ||
+							($selfProtoOptions[0] <= $otherProtoOptions[0] && $selfProtoOptions[1] <= $otherProtoOptions[1] && $selfProtoOptions[1] >= $otherProtoOptions[0]) ||
+							($selfProtoOptions[0] >= $otherProtoOptions[0] && $selfProtoOptions[1] >= $otherProtoOptions[1] && $selfProtoOptions[0] <= $otherProtoOptions[1])
+						);
+					}
+				}
+			}
+
+			return false;
+		}
+
 		/**
 		  * @param $name string
 		  * @return mixed
@@ -230,13 +291,25 @@
 		}
 
 		/**
-		  * @var $datas array
+		  * @return array
+		  */
+		public function sleep()
+		{
+			$datas = parent::sleep();
+			$datas['protocol'] = $this->protocol;
+
+			return $datas;
+		}
+
+		/**
+		  * @param $datas array
 		  * @return bool
 		  */
 		public function wakeup(array $datas)
 		{
-			$this->name($datas['name']);
-			$this->protocol($datas['protocol']);
-			return true;
+			$parentStatus = parent::wakeup($datas);
+			$protocolStatus = $this->protocol($datas['protocol']);
+
+			return ($parentStatus && $protocolStatus);
 		}
 	}

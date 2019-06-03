@@ -1,12 +1,17 @@
 <?php
 	namespace App\Firewall\Core;
 
+	use ArrayObject;
+
+	use Core\Exception as E;
+
 	use Addon\Ipam;
 
-	class Template_Juniper_Junos extends Template_Abstract
+	class Template_Juniper_Junos extends Template_Appliance
 	{
-		const PLATFORM = 'juniper';
-		const TEMPLATE = 'junos';
+		const VENDOR = 'juniper';
+		const PLATFORM = 'junos';
+		const TEMPLATE = null;
 
 		const ALLOW_RULE_MULTIZONES = self::RULE_MULTIZONES_NONE;
 
@@ -16,6 +21,7 @@
 
 		const ADDRESS_IPv_SEPARATOR = '-';
 		const ADDRESS_ESCAPE_CHARACTERS = '---';
+		const ADDRESS_FORBIDDEN_CHARACTERS = array('#', '@');
 
 
 		/**
@@ -35,6 +41,11 @@
 			}
 		}
 
+		/**
+		  * @param App\Firewall\Core\Api_Address $addressApi
+		  * @param string $zone
+		  * @return array|ArrayObject Object address datas
+		  */
 		protected function _toObjectAdd(Api_Address $addressApi, $zone = null)
 		{
 			$objectAdd = $this->_getObjectAdd($addressApi, $zone);
@@ -50,6 +61,7 @@
 			/**
 			  * CLEANER
 			  */
+			// ------------------------------
 			if($addressApi::OBJECT_TYPE === Api_Subnet::OBJECT_TYPE) {
 				$addressName = ltrim($apiAddressName, Ipam\Api_Subnet::SEPARATOR_SECTION);
 				$addressName = str_ireplace(Ipam\Api_Subnet::SEPARATOR_SECTION, self::ADDRESS_ESCAPE_CHARACTERS, $addressName);
@@ -57,6 +69,9 @@
 			else {
 				$addressName = $apiAddressName;
 			}
+
+			$addressName = str_ireplace(self::ADDRESS_FORBIDDEN_CHARACTERS, self::ADDRESS_ESCAPE_CHARACTERS, $addressName);
+			// ------------------------------
 
 			foreach(array('4' => $addressApi::FIELD_ATTRv4, '6' => $addressApi::FIELD_ATTRv6) as $IPv => $attrName)
 			{
@@ -98,6 +113,11 @@
 			return $addresses;
 		}
 
+		/**
+		  * @param App\Firewall\Core\Api_Protocol $protocolApi
+		  * @param string $zone
+		  * @return array|ArrayObject Protocol application datas
+		  */
 		protected function _toProtocolApp(Api_Protocol $protocolApi, $zone = null)
 		{
 			$protocolApp = $this->_getProtocolApp($protocolApi, $zone);
@@ -156,7 +176,15 @@
 			return $result;
 		}
 
-		protected function _toPolicyAcl(Api_Rule $ruleApi, $srcZone, array $sources, $dstZone, array $destinations)
+		/**
+		  * @param App\Firewall\Core\Api_Rule $ruleApi
+		  * @param array $srcZones
+		  * @param array $sources
+		  * @param array $dstZones
+		  * @param array $destinations
+		  * @return array|ArrayObject Policy accesslist datas
+		  */
+		protected function _toPolicyAcl(Api_Rule $ruleApi, array $srcZones, array $sources, array $dstZones, array $destinations)
 		{
 			$policyAcl = $this->_getPolicyAcl($ruleApi);
 
@@ -164,8 +192,8 @@
 				return $policyAcl;
 			}
 
-			$result = array();
 			$ruleName = $ruleApi->name;
+			$result = new ArrayObject(array(), ArrayObject::ARRAY_AS_PROPS);
 
 			$result['aclName'] = self::ACL_NAME_PREFIX;
 			$result['aclName'] .= $ruleApi->timestamp.'-'.$ruleName;
@@ -176,8 +204,18 @@
 			$result['sources'] = $sources;
 			$result['destinations'] = $destinations;
 
-			$result['srcZone'] = $srcZone;
-			$result['dstZone'] = $dstZone;
+			foreach(array('src', 'dst') as $attr)
+			{
+				${$attr.'Zones'} = array_unique(${$attr.'Zones'});
+
+				if(count(${$attr.'Zones'}) === 1) {
+					${$attr.'Zone'} = current(${$attr.'Zones'});
+					$result[$attr.'Zone'] = ${$attr.'Zone'};
+				}
+				else {
+					throw new E\Message("Ce template '".static::VENDOR."-".static::PLATFORM."' n'est pas compatible avec l'ACL multi-zones '".$ruleApi->name."'", E_USER_ERROR);
+				}
+			}
 
 			$result['srcAdds'] = array();
 			$result['dstAdds'] = array();
@@ -199,6 +237,12 @@
 			foreach($ruleApi->protocols as $protocol) {
 				$protocol = $this->_toProtocolApp($protocol);
 				$result['protoApps'][] = $protocol['name'];
+			}
+
+			$result['tags'] = array();
+
+			foreach($ruleApi->tags as $tag) {
+				$result['tags'][] = $tag->tag;
 			}
 
 			$result['description'] = (string) $ruleApi->description;

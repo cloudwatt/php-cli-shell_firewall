@@ -14,7 +14,7 @@
 		  * @param $type string
 		  * @return bool
 		  */
-		public function isType($type)
+		public static function isType($type)
 		{
 			return in_array($type, static::OBJECT_IDS, true);
 		}
@@ -23,9 +23,18 @@
 		  * @param $type string
 		  * @return false|string
 		  */
-		public function typeToName($type, $ucFirst = false, $strToUpper = false)
+		public static function getClass($type)
 		{
-			$class = $this->_typeToClass($type);
+			return static::_typeToClass($type);
+		}
+
+		/**
+		  * @param $type string
+		  * @return false|string
+		  */
+		public static function getName($type, $ucFirst = false, $strToUpper = false)
+		{
+			$class = static::_typeToClass($type);
 
 			if($class !== false)
 			{
@@ -50,7 +59,7 @@
 		  * @throw App\Firewall\Exception
 		  * @return bool
 		  */
-		protected function _typeIsAllowed($type, $throwException = true)
+		protected static function _typeIsAllowed($type, $throwException = true)
 		{
 			if(array_key_exists($type, static::OBJECT_KEYS)) {
 				return true;
@@ -67,7 +76,7 @@
 		  * @param $type string
 		  * @return false|string
 		  */
-		protected function _typeToKey($type)
+		protected static function _typeToKey($type)
 		{
 			return (array_key_exists($type, static::OBJECT_KEYS)) ? (static::OBJECT_KEYS[$type]) : (false);
 		}
@@ -76,7 +85,7 @@
 		  * @param $type string
 		  * @return false|string
 		  */
-		protected function _typeToClass($type)
+		protected static function _typeToClass($type)
 		{
 			return (array_key_exists($type, static::OBJECT_CLASSES)) ? (static::OBJECT_CLASSES[$type]) : (false);
 		}
@@ -85,7 +94,7 @@
 		  * @param $key string
 		  * @return false|string
 		  */
-		protected function _keyToType($key)
+		protected static function _keyToType($key)
 		{
 			$types = array_keys(static::OBJECT_KEYS, $key, true);
 			return (count($types) === 1) ? (current($types)) : (false);
@@ -95,7 +104,7 @@
 		  * @param $class string
 		  * @return false|string
 		  */
-		protected function _classToType($class)
+		protected static function _classToType($class)
 		{
 			$types = array_keys(static::OBJECT_CLASSES, $class, true);
 			return (count($types) === 1) ? (current($types)) : (false);

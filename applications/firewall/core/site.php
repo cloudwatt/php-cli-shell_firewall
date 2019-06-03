@@ -12,6 +12,13 @@
 
 		public function getGuiAddress()
 		{
-			return $this->_datasObject['ip'];
+			$guiProtocol = $this->getGuiProtocol();
+
+			if($this->_datasObject->key_exists($guiProtocol)) {
+				return $this->_datasObject[$guiProtocol];
+			}
+			else {
+				return false;
+			}
 		}
 	}

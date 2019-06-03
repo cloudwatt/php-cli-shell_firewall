@@ -1,12 +1,10 @@
 <?php
 	namespace App\Firewall\Core;
 
-	use ArrayObject;
-
 	use Core as C;
 	use Core\Exception as E;
 
-	class Api_Rule extends Api_Abstract implements Api_Rule_Interface
+	class Api_Rule extends Api_Abstract implements Api_Interface, Api_Rule_Interface
 	{
 		const OBJECT_KEY = 'rule';
 		const OBJECT_TYPE = 'rule';
@@ -17,9 +15,12 @@
 		const CATEG_MONOSITE = 'monosite';
 		const CATEG_FAILOVER = 'failover';
 
+		const SEPARATOR_TYPE = '::';
+
 		protected static $_TIMESTAMP = null;
 
 		protected $_datas = array(
+			'_id_' => null,
 			'name' => null,
 			'category' => null,
 			'fullmesh' => false,
@@ -29,12 +30,21 @@
 			'destinations' => array(),
 			'protocols' => array(),
 			'description' => '',
+			'tags' => array(),
 			'timestamp' => null,
 		);
 
 
-		public function __construct($name = null, $category = null, $description = null)
+		/**
+		  * @param string $id ID
+		  * @param string $name Name
+		  * @param string $category Category
+		  * @param string $description Description
+		  * @return $this
+		  */
+		public function __construct($id = null, $name = null, $category = null, $description = null)
 		{
+			$this->id($id);
 			$this->name($name);
 			$this->category($category);
 			$this->description($description);
@@ -44,16 +54,6 @@
 			}
 
 			$this->touch();
-		}
-
-		public function name($name)
-		{
-			if(C\Tools::is('string&&!empty', $name) || C\Tools::is('int&&>=0', $name)) {
-				$this->_datas[self::FIELD_NAME] = (string) $name;
-				return true;
-			}
-
-			return false;
 		}
 
 		public function category($category = self::CATEG_MONOSITE)
@@ -217,13 +217,19 @@
 				}
 
 				$type = $addressApi->type;
-				$name = $addressApi->name;
+				$_id_ = $addressApi->_id_;
 
 				foreach($attributes as $_attributes)
 				{
 					foreach($this->_datas[$_attributes] as $Api_Address)
 					{
-						if($type === $Api_Address->type && $name === $Api_Address->name) {
+						/**
+						  * Des objets Address de type différents peuvent avoir le même nom
+						  *
+						  * Le contrôle de l'overlap d'adresses doit se faire en dehors de la cette classe
+						  * afin de laisser le choix de l'autoriser ou de l'interdire et d'afficher un avertissement
+						  */
+						if($type === $Api_Address->type && $_id_ === $Api_Address->_id_) {
 							return false;
 						}
 					}
@@ -238,20 +244,182 @@
 			}
 		}
 
+		/**
+		  * @throw Core\Exception\Message
+		  * @return void
+		  */
+		public function checkOverlapAddress()
+		{
+			$attributes = array(
+				'sources' => array('sources', 'destinations'),
+				'destinations' =>  array('destinations')
+			);
+
+			$testsDone = array();
+
+			foreach($attributes as $attribute_A => $attributes_B)
+			{
+				foreach($attributes_B as $attribute_B)
+				{
+					foreach($this->_datas[$attribute_A] as $index_A => $addressApi_A)
+					{
+						foreach($this->_datas[$attribute_B] as $index_B => $addressApi_B)
+						{
+							if($index_A === $index_B || (isset($testsDone[$index_B]) && in_array($index_A, $testsDone[$index_B], true))) {
+								continue;
+							}
+							/**
+							  * /!\ On interdit des doublons d'host car cela n'a pas de sens mais on l'autorise pour les subnet et les network
+							  * /!\ Les doublons ne sont autorisés que entre les attributs source et destination et non au sein du même attribut
+							  */
+							elseif($attribute_A !== $attribute_B && ($addressApi_A::OBJECT_TYPE !== Api_Host::OBJECT_TYPE || $addressApi_B::OBJECT_TYPE !== Api_Host::OBJECT_TYPE)) {
+								continue;
+							}
+
+							$this->_addressesOverlap($addressApi_A, $addressApi_B);
+							$testsDone[$index_B][] = $index_A;
+						}
+					}
+				}
+			}
+		}
+
+		/**
+		  * @param string $srcDst
+		  * @param App\Firewall\Core\Api_Address $addressApi
+		  * @throw Core\Exception\Message
+		  * @return void
+		  */
+		public function testAddressOverlap($srcDst, Api_Address $addressApi)
+		{
+			/**
+			  * /!\ On interdit des doublons d'host car cela n'a pas de sens mais on l'autorise pour les subnet et les network
+			  * /!\ Les doublons ne sont autorisés que entre les attributs source et destination et non au sein du même attribut
+			  */
+			if($addressApi::OBJECT_TYPE === Api_Host::OBJECT_TYPE) {
+				$attributes = array('sources', 'destinations');
+			}
+			else
+			{
+				switch($srcDst)
+				{
+					case 'source':
+					case 'sources': {
+						$attributes = array('sources');
+						break;
+					}
+					case 'destination':
+					case 'destinations': {
+						$attributes = array('destinations');
+						break;
+					}
+					default: {
+						throw new Exception("Rule attribute '".$srcDst."' is not valid", E_USER_ERROR);
+					}
+				}
+			}
+
+			$type = $addressApi->type;
+			$_id_ = $addressApi->_id_;
+
+			foreach($attributes as $_attributes)
+			{
+				foreach($this->_datas[$_attributes] as $Api_Address)
+				{
+					/**
+					  * Lorsque l'utilisateur souhaite modifier une addresse
+					  * alors il ne faut pas tester l'overlap sur elle même
+					  */
+					if($type !== $Api_Address->type || $_id_ !== $Api_Address->_id_) {
+						$this->_addressesOverlap($addressApi, $Api_Address);
+					}
+				}
+			}
+		}
+
+		/**
+		  * @param App\Firewall\Core\Api_Address $addressApi_A
+		  * @param App\Firewall\Core\Api_Address $addressApi_B
+		  * @throw Core\Exception\Message
+		  * @return void
+		  */
+		protected function _addressesOverlap(Api_Address $addressApi_A, Api_Address $addressApi_B)
+		{
+			$addressName_A = ucfirst($addressApi_A::OBJECT_NAME);
+			$addressName_B = ucfirst($addressApi_B::OBJECT_NAME);
+
+			switch($addressApi_A::OBJECT_TYPE)
+			{
+				case Api_Host::OBJECT_TYPE:
+				{
+					if($addressApi_B->includes($addressApi_A)) {
+						throw new E\Message($addressName_B." '".$addressApi_B->name."' includes or overlaps the ".$addressName_A." '".$addressApi_A->name."'", E_USER_WARNING);
+					}
+					break;
+				}
+				case Api_Subnet::OBJECT_TYPE:
+				case Api_Network::OBJECT_TYPE:
+				{
+					switch($addressApi_B::OBJECT_TYPE)
+					{
+						case Api_Host::OBJECT_TYPE:
+						{
+							if($addressApi_A->includes($addressApi_B)) {
+								throw new E\Message($addressName_A." '".$addressApi_A->name."' includes the ".$addressName_B." '".$addressApi_B->name."'", E_USER_WARNING);
+							}
+							break;
+						}
+						case Api_Subnet::OBJECT_TYPE:
+						case Api_Network::OBJECT_TYPE:
+						{
+							if($addressApi_A->includes($addressApi_B) || $addressApi_B->includes($addressApi_A)) {
+								throw new E\Message($addressName_B." '".$addressApi_B->name."' includes or is included by the ".$addressName_A." '".$addressApi_A->name."'", E_USER_WARNING);
+							}
+							break;
+						}
+					}
+					break;
+				}
+			}
+		}
+
+		/**
+		  * Adds protocol
+		  *
+		  * @param App\Firewall\Core\Api_Protocol $protocolApi
+		  * @return bool
+		  */
+		public function proto(Api_Protocol $protocolApi)
+		{
+			return $this->addProtocol($protocolApi);
+		}
+
+		/**
+		  * Adds protocol
+		  *
+		  * @param App\Firewall\Core\Api_Protocol $protocolApi
+		  * @return bool
+		  */
 		public function protocol(Api_Protocol $protocolApi)
 		{
 			return $this->addProtocol($protocolApi);
 		}
 
+		/**
+		  * Adds protocol
+		  *
+		  * @param App\Firewall\Core\Api_Protocol $protocolApi
+		  * @return bool
+		  */
 		public function addProtocol(Api_Protocol $protocolApi)
 		{
 			if($protocolApi->isValid())
 			{
-				$name = $protocolApi->name;
+				$_id_ = $protocolApi->_id_;
 
-				foreach($this->_datas['protocols'] as $protoObject)
+				foreach($this->_datas['protocols'] as $Api_Protocol)
 				{
-					if($name === $protoObject->name) {
+					if($_id_ === $Api_Protocol->_id_) {
 						return false;
 					}
 				}
@@ -264,6 +432,28 @@
 			return false;
 		}
 
+		public function protocols(array $protocols)
+		{
+			return $this->setProtocols($protocols);
+		}
+
+		public function setProtocols(array $protocols)
+		{
+			$this->reset('protocols');
+
+			foreach($protocols as $protocol)
+			{
+				$status = $this->protocol($protocol);
+
+				if(!$status) {
+					$this->reset('protocols');
+					return false;
+				}
+			}
+
+			return true;
+		}
+
 		public function description($description = '')
 		{
 			if(C\Tools::is('string', $description)) {
@@ -274,25 +464,107 @@
 			return false;
 		}
 
-		public function replace(Api_Address $badAddressApi, Api_Address $newAddressApi)
+		/**
+		  * Adds tag
+		  *
+		  * @param App\Firewall\Core\Api_Tag $tagApi
+		  * @return bool
+		  */
+		public function tag(Api_Tag $tagApi)
 		{
-			$counter = 0 ;
-
-			$badType = $badAddressApi->type;
-			$badName = $badAddressApi->name;
-
-			foreach(array('sources', 'destinations') as $attributes)
+			if($tagApi->isValid())
 			{
-				foreach($this->_datas[$attributes] as &$attribute)
+				$_id_ = $tagApi->_id_;
+
+				foreach($this->_datas['tags'] as $Api_Tag)
 				{
-					if(($attribute->type === $badType && $attribute->name === $badName)) {
-						$attribute = $newAddressApi;
-						$counter++;
+					if($_id_ === $Api_Tag->_id_) {
+						return false;
 					}
+				}
+
+				$this->_datas['tags'][] = $tagApi;
+				$this->_refresh('tags');
+				return true;
+			}
+
+			return false;
+		}
+
+		/**
+		  * Configures this rule
+		  *
+		  * @param string $attrName For Api_Address must be source(s) or destination(s)
+		  * @param App\Firewall\Core\Api_Abstract $abstractApi
+		  * @return bool
+		  */
+		public function configure($attrName, Api_Abstract $abstractApi)
+		{
+			if($abstractApi instanceof Api_Address)
+			{
+				switch($attrName)
+				{
+					case 'source':
+					case 'sources': {
+						$attrName = 'sources';
+						break;
+					}
+					case 'destination':
+					case 'destinations': {
+						$attrName = 'destinations';
+						break;
+					}
+					default: {
+						return false;
+					}
+				}
+
+				return $this->_addSrcDst($attrName, $abstractApi);
+			}
+			elseif($abstractApi instanceof Api_Protocol) {
+				return $this->protocol($abstractApi);
+			}
+			elseif($abstractApi instanceof Api_Tag) {
+				return $this->tag($abstractApi);
+			}
+			else {
+				return false;
+			}
+		}
+
+		public function replace(Api_Address $badAddressApi, Api_Address $newAddressApi, &$counter = null)
+		{
+			/**
+			  * Dans certains cas l'utilisateur peut passer une variable counter qui n'est pas égale à 0
+			  * Cela permet à l'utilisateur d'avoir un compteur total, donc ne pas tenter de le réinitialiser à 0
+			  */
+			if(!C\Tools::is('int', $counter)) {
+				$counter = 0;
+			}
+
+			$localCounter = 0;
+
+			foreach(array('source', 'destination') as $attribute)
+			{
+				/**
+				  * Dans un 1er temps, on supprime l'ancien objet adresse
+				  *
+				  * Si et seulement si on a réussi à le supprimer et donc à le trouver
+				  * alors on peut essayer de configurer le nouvel objet adresse mais
+				  * si celui-ci est déjà présent alors il ne sera pas ajouté
+				  *
+				  * Le compteur doit par contre s'incrémenter afin d'indiquer un changement
+				  */
+				$resetStatus = $this->reset($attribute, $badAddressApi->type, $badAddressApi);
+
+				if($resetStatus) {
+					$configureStatus = $this->configure($attribute, $newAddressApi);
+					$localCounter++;
 				}
 			}
 
-			return ($counter > 0);
+			$counter += $localCounter;
+			return ($localCounter > 0);
 		}
 
 		public function reset($attribute = null, $type = null, Api_Abstract $object = null)
@@ -341,6 +613,19 @@
 					$this->_datas['protocols'] = array();
 					break;
 				}
+				case ($attribute === 'tag'):
+				{
+					if($type !== null && $object !== null) {
+						return $this->_resetTag($this->_datas['tags'], $type, $object);
+					}
+					else {
+						return false;
+					}
+				}
+				case ($attribute === 'tags'): {
+					$this->_datas['tags'] = array();
+					break;
+				}
 				case ($attribute === null):
 				case ($attribute === true): {
 					$this->_datas['sources'] = array();
@@ -362,16 +647,8 @@
 			{
 				case Api_Host::OBJECT_TYPE:
 				case Api_Subnet::OBJECT_TYPE:
-				case Api_Network::OBJECT_TYPE:
-				{
-					foreach($attributes as $index => $attribute)
-					{
-						if($attribute->type === $type && $attribute->name === $addressApi->name) {
-							unset($attributes[$index]);
-							return true;
-						}
-					}
-					break;
+				case Api_Network::OBJECT_TYPE: {
+					return $this->_reset($attributes, $type, $addressApi, 'name');
 				}
 			}
 
@@ -380,9 +657,19 @@
 
 		protected function _resetProtocol(&$attributes, $type, Api_Protocol $protocolApi)
 		{
+			return $this->_reset($attributes, $type, $protocolApi, 'protocol');
+		}
+
+		protected function _resetTag(&$attributes, $type, Api_Tag $tagApi)
+		{
+			return $this->_reset($attributes, $type, $tagApi, 'tag');
+		}
+
+		protected function _reset(&$attributes, $type, Api_Abstract $api, $attrField)
+		{
 			foreach($attributes as $index => $attribute)
 			{
-				if($attribute->type === $type && $attribute->protocol === $protocolApi->protocol) {
+				if($attribute->type === $type && $attribute->{$attrField} === $api->{$attrField}) {
 					unset($attributes[$index]);
 					return true;
 				}
@@ -422,6 +709,7 @@
 			$this->_refresh('sources');
 			$this->_refresh('destinations');
 			$this->_refresh('protocols');
+			$this->_refresh('tags');
 			return $this;
 		}
 
@@ -432,6 +720,7 @@
 				case 'sources':
 				case 'destinations':
 				case 'protocols':
+				case 'tags':
 				{
 					uasort($this->_datas[$attribute], function($a, $b) {
 						return strnatcasecmp($a->name, $b->name);
@@ -443,32 +732,43 @@
 
 		public function match($search, $strict = false)
 		{
-			$fieldAttrs = array('description');
+			/**
+			  * Ne pas oublier name pour les règles avec un préfixe ou un suffixe
+			  */
+			$fieldAttrs = array(self::FIELD_NAME, 'description');
+			$isMatched = $this->_match($search, $fieldAttrs, $strict);
 
-			return $this->_match($search, $fieldAttrs, $strict);
+			if(!$isMatched)
+			{
+				foreach($this->tags as $Api_Tag)
+				{
+					if($Api_Tag->match($search, $strict)) {
+						$isMatched = true;
+						break;
+					}
+				}
+			}
+
+			return $isMatched;
 		}
 
 		/**
-		  * Check the Address argument is present for this rule
+		  * Checks the address argument is present for this rule
 		  *
 		  * Do not test attributeV4 or attributeV6 because
 		  * the test must be about Address object and not it attributes
 		  *
-		  * @arg App\Firewall\Core\Api_Address $addressApi Address object to test
+		  * @param App\Firewall\Core\Api_Address $addressApi Address object to test
 		  * @return bool Address is present for this rule
 		  */
-		public function isPresent(Api_Address $addressApi)
+		public function addressIsPresent(Api_Address $addressApi)
 		{
-			$type = $addressApi->type;
-			$name = $addressApi->name;
-
 			foreach(array('sources', 'destinations') as $attributes)
 			{
-				foreach($this->_datas[$attributes] as $attribute)
-				{
-					if(($attribute->type === $type && $attribute->name === $name)) {
-						return true;
-					}
+				$isPresent = $this->_objectIsPresent($attributes, $addressApi);
+
+				if($isPresent) {
+					return true;
 				}
 			}
 
@@ -476,39 +776,130 @@
 		}
 
 		/**
-		  * Check the Address argument is used for this rule
+		  * Checks the protocol argument is present for this rule
+		  *
+		  * @param App\Firewall\Core\Api_Protocol $protocolApi Protocol object to test
+		  * @return bool Protocol is present for this rule
+		  */
+		public function protocolIsPresent(Api_Protocol $protocolApi)
+		{
+			return $this->_objectIsPresent('protocols', $protocolApi);
+		}
+
+		/**
+		  * Checks the tag argument is present for this rule
+		  *
+		  * @param App\Firewall\Core\Api_Tag $tagApi Tag object to test
+		  * @return bool Tag is present for this rule
+		  */
+		public function tagIsPresent(Api_Tag $tagApi)
+		{
+			return $this->_objectIsPresent('tags', $tagApi);
+		}
+
+		/**
+		  * Checks the address argument is present for this rule
+		  *
+		  * Do not test attributeV4 or attributeV6 because
+		  * the test must be about Address object and not it attributes
+		  *
+		  * @param App\Firewall\Core\Api_Address $addressApi Address object to test
+		  * @return bool Address is present for this rule
+		  */
+		public function isPresent(Api_Address $addressApi)
+		{
+			return $this->addressIsPresent($addressApi);
+		}
+
+		/**
+		  * Checks the object argument is present for this rule
+		  *
+		  * Do not test object attributes because the test
+		  * must be about object itself and not it attributes
+		  *
+		  * @param string $attributes Attributes field name
+		  * @param App\Firewall\Core\Api_Abstract $objectApi Object object to test
+		  * @return bool Object is present for this rule
+		  */
+		protected function _objectIsPresent($attributes, Api_Abstract $objectApi)
+		{
+			$type = $objectApi->type;
+			$_id_ = $objectApi->_id_;
+
+			foreach($this->_datas[$attributes] as $attribute)
+			{
+				if(($attribute->type === $type && $attribute->_id_ === $_id_)) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		  * Checks the address argument is used for this rule
 		  *
 		  * Do not test name because the test must be
 		  * about Address attributes and not the object
 		  *
-		  * @arg App\Firewall\Core\Api_Address $addressApi Address object to test
+		  * @param App\Firewall\Core\Api_Address $addressApi Address object to test
+		  * @param bool $strict True to test equality between addresse attributes, false to test addresse attributes inclusion
+		  * @param App\Firewall\Core\Api_Address $ignoreAddressApi Address object to ignore, use type and ID to compare address object
 		  * @return bool Address is used for this rule
 		  */
-		public function isInUse(Api_Address $addressApi, $strict = false)
+		public function addressIsInUse(Api_Address $addressApi, $strict = true, Api_Address $ignoreAddressApi = null)
 		{
-			$type = $addressApi->type;
+			$Api_Address = $this->getAddressIsInUse($addressApi, $strict, $ignoreAddressApi);
+			return ($Api_Address !== false);
+		}
+
+		/**
+		  * Gets the address argument is used for this rule
+		  *
+		  * Do not test name because the test must be
+		  * about Address attributes and not the object
+		  *
+		  * @param App\Firewall\Core\Api_Address $addressApi Address object to test
+		  * @param bool $strict True to test equality between addresse attributes, false to test addresse attributes inclusion
+		  * @param App\Firewall\Core\Api_Address $ignoreAddressApi Address object to ignore, use type and ID to compare address object
+		  * @return false|App\Firewall\Core\Api_Address Address is used for this rule
+		  */
+		public function getAddressIsInUse(Api_Address $addressApi, $strict = true, Api_Address $ignoreAddressApi = null)
+		{
+			$addressType = $addressApi->type;
 			$isIPv4 = $addressApi->isIPv4();
 			$isIPv6 = $addressApi->isIPv6();
 			$attributeV4 = $addressApi->attributeV4;
 			$attributeV6 = $addressApi->attributeV6;
 
+			if($ignoreAddressApi !== null) {
+				$ignoreType = $ignoreAddressApi->type;
+				$ignoreId = $ignoreAddressApi->_id_;
+			}
+
 			foreach(array('sources', 'destinations') as $attributes)
 			{
-				foreach($this->_datas[$attributes] as $attribute)
+				foreach($this->_datas[$attributes] as $Api_Address)
 				{
+					$currentType = $Api_Address->type;
+
+					if($ignoreAddressApi !== null && $ignoreType === $currentType && $ignoreId === $Api_Address->_id_) {
+						continue;
+					}
+
 					if($strict)
 					{
-						if($attribute->type === $type && (
-							($isIPv4 && $attribute->attributeV4 === $attributeV4) ||
-							($isIPv6 && $attribute->attributeV6 === $attributeV6)))
+						if($currentType === $addressType && (
+							($isIPv4 && $Api_Address->attributeV4 === $attributeV4) ||
+							($isIPv6 && $Api_Address->attributeV6 === $attributeV6)))
 						{
-							return true;
+							return $Api_Address;
 						}
 					}
 					else
 					{
-						if($attribute->includes($addressApi)) {
-							return true;
+						if($Api_Address->includes($addressApi)) {
+							return $Api_Address;
 						}
 					}
 				}
@@ -517,26 +908,119 @@
 			return false;
 		}
 
+		/**
+		  * Checks the protocol argument is used for this rule
+		  *
+		  * Do not test name because the test must be
+		  * about Protocol attributes and not the object
+		  *
+		  * @param App\Firewall\Core\Api_Protocol $protocolApi Protocol object to test
+		  * @return bool Protocol is used for this rule
+		  */
+		public function protocolIsInUse(Api_Protocol $protocolApi, $strict = true)
+		{
+			$Api_Protocol = $this->getProtocolIsInUse($protocolApi, $strict);
+			return ($Api_Protocol !== false);
+		}
+
+		/**
+		  * Gets the protocol argument is used for this rule
+		  *
+		  * Do not test name because the test must be
+		  * about Protocol attributes and not the object
+		  *
+		  * @param App\Firewall\Core\Api_Protocol $protocolApi Protocol object to test
+		  * @return false|App\Firewall\Core\Api_Protocol Protocol is used for this rule
+		  */
+		public function getProtocolIsInUse(Api_Protocol $protocolApi, $strict = true)
+		{
+			$type = $protocolApi->type;
+			$protocol = $protocolApi->protocol;
+
+			foreach($this->_datas['protocols'] as $Api_Protocol)
+			{
+				if($strict)
+				{
+					if($Api_Protocol->type === $type && $Api_Protocol->protocol === $protocol) {
+						return $Api_Protocol;
+					}
+				}
+				else
+				{
+					if($Api_Protocol->includes($protocolApi)) {
+						return $Api_Protocol;
+					}
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		  * Checks the tag argument is used for this rule
+		  *
+		  * Do not test name because the test must be
+		  * about Tag attributes and not the object
+		  *
+		  * @param App\Firewall\Core\Api_Tag $tagApi Tag object to test
+		  * @return bool Tag is used for this rule
+		  */
+		public function tagIsInUse(Api_Tag $tagApi, $strict = true)
+		{
+			$Api_Tag = $this->getTagIsInUse($tagApi, $strict);
+			return ($Api_Tag !== false);
+		}
+
+		/**
+		  * Gets the tag argument is used for this rule
+		  *
+		  * Do not test name because the test must be
+		  * about Tag attributes and not the object
+		  *
+		  * @param App\Firewall\Core\Api_Tag $tagApi Tag object to test
+		  * @return false|App\Firewall\Core\Api_Tag Tag is used for this rule
+		  */
+		public function getTagIsInUse(Api_Tag $tagApi, $strict = true)
+		{
+			$type = $tagApi->type;
+			$tag = $tagApi->tag;
+
+			foreach($this->_datas['tags'] as $Api_Tag)
+			{
+				if($Api_Tag->type === $type && $Api_Tag->tag === $tag) {
+					return $Api_Tag;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		  * Checks the address argument is used for this rule
+		  *
+		  * Do not test name because the test must be
+		  * about Address attributes and not the object
+		  *
+		  * @param App\Firewall\Core\Api_Address $addressApi Address object to test
+		  * @return bool Address is used for this rule
+		  */
+		public function isInUse(Api_Address $addressApi, $strict = true)
+		{
+			return $this->addressIsInUse($addressApi, $strict);
+		}
+
 		public function isValid($returnInvalidAttributes = false)
 		{
 			$tests = array(
-				'bool' => array(
-					'fullmesh',
-					'state',
-					'action'
-				),
-				'int&&>0' => array(
-					'timestamp',
-				),
-				'string&&!empty' => array(
-					self::FIELD_NAME,
-					'category'
-				),
-				'array&&count>0' => array(
-					'sources',
-					'destinations',
-					'protocols'
-				)
+				array('fullmesh' => 'bool'),
+				array('state' => 'bool'),
+				array('action' => 'bool'),
+				array(self::FIELD_NAME => 'string&&!empty'),
+				array('category' => 'string&&!empty'),
+				array('sources' => 'array&&count>0'),
+				array('destinations' => 'array&&count>0'),
+				array('protocols' => 'array&&count>0'),
+				array('tags' => 'array&&count>=0'),
 			);
 
 			return $this->_isValid($tests, $returnInvalidAttributes);
@@ -563,15 +1047,30 @@
 			$this->touch();
 		}
 
+		/**
+		  * @return array
+		  */
 		public function sleep()
 		{
 			$datas = $this->_datas;
 
+			/*if(self::FIELD_ID !== 'id') {
+				$datas['id'] = $datas[self::FIELD_ID];
+				unset($datas[self::FIELD_ID]);
+			}*/
+			unset($datas[self::FIELD_ID]);
+
+			if(self::FIELD_NAME !== 'name') {
+				$datas['name'] = $datas[self::FIELD_NAME];
+				unset($datas[self::FIELD_NAME]);
+			}
+
 			foreach(array('sources', 'destinations') as $attributes)
 			{
 				foreach($datas[$attributes] as &$attrObject) {
-					$attrObject = $attrObject::OBJECT_KEY.'::'.$attrObject->name;
+					$attrObject = $attrObject::OBJECT_TYPE.self::SEPARATOR_TYPE.$attrObject->name;
 				}
+				unset($attrObject);
 
 				/**
 				  * /!\ Important for json_encode
@@ -584,6 +1083,12 @@
 			foreach($datas['protocols'] as &$attrObject) {
 				$attrObject = $attrObject->protocol;
 			}
+			unset($attrObject);
+
+			foreach($datas['tags'] as &$attrObject) {
+				$attrObject = $attrObject->tag;
+			}
+			unset($attrObject);
 
 			/**
 			  * /!\ Important for json_encode
@@ -591,68 +1096,68 @@
 			  * va indiquer explicitement les clés dans le tableau
 			  */
 			$datas['protocols'] = array_values($datas['protocols']);
+			$datas['tags'] = array_values($datas['tags']);
 
 			return $datas;
 		}
 
-		public function wakeup(array $datas, ArrayObject $objects = null)
+		/**
+		  * @param $datas array
+		  * @return bool
+		  */
+		public function wakeup(array $datas)
 		{
-			if($objects !== null)
+			// @todo temporaire/compatibilité
+			// ------------------------------
+			if(!array_key_exists('id', $datas)) {
+				$datas['id'] = $datas['name'];
+			}
+
+			if(!array_key_exists('state', $datas)) {
+				$datas['state'] = true;
+			}
+
+			if(!array_key_exists('tags', $datas)) {
+				$datas['tags'] = array();
+			}
+			// ------------------------------
+
+			// /!\ Permets de s'assurer que les traitements spéciaux sont bien appliqués
+			$this->id($datas['id']);
+			$this->name($datas['name']);
+			$this->category($datas['category']);
+			$this->fullmesh($datas['fullmesh']);
+			$this->state($datas['state']);
+			$this->action($datas['action']);
+			$this->description($datas['description']);
+			$this->timestamp($datas['timestamp']);
+
+			foreach($datas['protocols'] as $protocol)
 			{
-				// @todo temporaire/compatibilité
-				if(!array_key_exists('state', $datas)) {
-					$datas['state'] = true;
+				$Api_Protocol = new Api_Protocol($protocol, $protocol);
+				$status = $Api_Protocol->protocol($protocol);
+
+				if($status && $Api_Protocol->isValid()) {
+					$this->protocol($Api_Protocol);
 				}
-
-				$datas = array_intersect_key($datas, $this->_datas);
-				$datas = array_merge($this->_datas, $datas);
-
-				// /!\ Permets de s'assurer que les traitements spéciaux sont bien appliqués
-				$this->name($datas['name']);
-				$this->category($datas['category']);
-				$this->fullmesh($datas['fullmesh']);
-				$this->state($datas['state']);
-				$this->action($datas['action']);
-				$this->description($datas['description']);
-				$this->timestamp($datas['timestamp']);
-
-				foreach(array('source' => 'sources', 'destination' => 'destinations') as $attribute => $attributes)
-				{
-					foreach($datas[$attributes] as $attrObject)
-					{
-						$parts = explode('::', $attrObject, 2);
-
-						if(count($parts) === 2)
-						{
-							if(array_key_exists($parts[0], $objects) && array_key_exists($parts[1], $objects[$parts[0]])) {
-								call_user_func(array($this, $attribute), $objects[$parts[0]][$parts[1]]);
-							}
-							else {
-								throw new E\Message("Address '".$attrObject."' is not valid", E_USER_ERROR);
-							}
-						}
-						else {
-							throw new E\Message("Address '".$attrObject."' is not valid", E_USER_ERROR);
-						}
-					}
+				else {
+					throw new E\Message("Protocol '".$protocol."' is not valid", E_USER_ERROR);
 				}
-
-				foreach($datas['protocols'] as $protocol)
-				{
-					$Core_Api_Protocol = new Api_Protocol($protocol, $protocol);
-
-					if($Core_Api_Protocol->isValid()) {
-						$this->protocol($Core_Api_Protocol);
-					}
-					else {
-						throw new E\Message("Protocol '".$protocol."' is not valid", E_USER_ERROR);
-					}
-				}
-
-				return true;
 			}
-			else {
-				return false;
+
+			foreach($datas['tags'] as $tag)
+			{
+				$Api_Tag = new Api_Tag($tag, $tag);
+				$status = $Api_Tag->tag($tag);
+
+				if($status && $Api_Tag->isValid()) {
+					$this->tag($Api_Tag);
+				}
+				else {
+					throw new E\Message("Tag '".$tag."' is not valid", E_USER_ERROR);
+				}
 			}
+			
+			return true;
 		}
 	}

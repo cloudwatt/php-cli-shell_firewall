@@ -5,6 +5,31 @@
 
 	abstract class Api_Address extends Api_Abstract implements Api_Interface
 	{
+		/**
+		  * @param string $address
+		  * @return App\Firewall\Core\Api_Address
+		  */
+		public static function factory($address)
+		{
+			switch(true)
+			{
+				case Tools::isIP($address): {
+					return new Api_Host($address, $address, $address);
+				}
+				case Tools::isSubnet($address): {
+					return new Api_Subnet($address, $address, $address);
+				}
+				case Tools::isNetwork($address, Api_Network::SEPARATOR): {
+					return new Api_Network($address, $address, $address);
+				}
+				default: {
+					return false;
+				}
+			}
+		}
+
+		abstract public function configure($address);
+
 		public function isIPv($IPv)
 		{
 			switch($IPv)
@@ -70,10 +95,16 @@
 		public function isValid($returnInvalidAttributes = false)
 		{		
 			$tests = array(
-				'string&&!empty' => static::FIELD_ATTRS
+				array(static::FIELD_NAME => 'string&&!empty'),
+				array(
+					static::FIELD_ATTRv4 => 'string&&!empty',
+					static::FIELD_ATTRv6 => 'string&&!empty',
+					/*static::FIELD_ATTRv4 => 'ipv4',
+					static::FIELD_ATTRv6 => 'ipv6',*/
+				),
 			);
 
-			return (C\Tools::is('string&&!empty', $this->_datas[static::FIELD_NAME]) && $this->_isValid($tests, $returnInvalidAttributes, 'OR'));
+			return $this->_isValid($tests, $returnInvalidAttributes);
 		}
 
 		public function __get($name)
@@ -107,21 +138,41 @@
 			}
 		}
 
-		public function wakeup(array $datas)
+		/**
+		  * @return array
+		  */
+		public function sleep()
 		{
-			$datas = array_intersect_key($datas, $this->_datas);
-			$datas = array_merge($this->_datas, $datas);
-
-			// /!\ Permets de s'assurer que les traitements spéciaux sont bien appliqués
-			$this->name($datas['name']);
+			$datas = parent::sleep();
 
 			foreach(static::FIELD_ATTRS as $attribute)
 			{
-				if(array_key_exists($attribute, $datas)) {
-					call_user_func(array($this, static::FIELD_ATTR_FCT), $datas[$attribute]);
+				if(array_key_exists($attribute, $this->_datas)) {
+					$datas[$attribute] = $this->_datas[$attribute];
 				}
 			}
 
-			return true;
+			return $datas;
+		}
+
+		/**
+		  * @param $datas array
+		  * @return bool
+		  */
+		public function wakeup(array $datas)
+		{
+			$parentStatus = parent::wakeup($datas);
+
+			$attributeStatus = true;
+
+			foreach(static::FIELD_ATTRS as $attribute)
+			{
+				if(array_key_exists($attribute, $datas) && $datas[$attribute] !== null) {
+					$status = $this->configure($datas[$attribute]);
+					if(!$status) { $attributeStatus = false; }	// On essaye d'attribuer tous les attributs
+				}
+			}
+
+			return ($parentStatus && $attributeStatus);
 		}
 	}

@@ -7,10 +7,18 @@
 	{
 		protected static $_itemClassName = __NAMESPACE__ .'\Site';
 
+		/**
+		  * @var Core\Config
+		  */
+		protected $_CONFIG = null;
+
 
 		public function __construct(C\Config $config)
 		{
-			parent::__construct($config, 'FIREWALL', 'sites');
+			$this->_CONFIG = $config;
+			$config = $this->_CONFIG->FIREWALL->sites;
+
+			parent::__construct($config);
 		}
 
 		public function getSiteKeys()

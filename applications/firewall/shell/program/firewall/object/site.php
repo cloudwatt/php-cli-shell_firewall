@@ -9,6 +9,8 @@
 
 	class Shell_Program_Firewall_Object_Site extends Shell_Program_Firewall_Object_Abstract
 	{
+		const OBJECT_NAME = 'site';
+
 		const OBJECT_IDS = array(
 			Core\Api_Site::OBJECT_TYPE
 		);
@@ -36,16 +38,6 @@
 			$this->_fwSites = $fwSites;
 		}
 
-		protected function _getSite($type, $name)
-		{
-			return $this->_getObject($type, $name);
-		}
-
-		public function locate($type, $search, $strict = false)
-		{
-			return false;
-		}
-
 		public function create($type, array $args)
 		{
 			if($this->_typeIsAllowed($type))
@@ -67,9 +59,9 @@
 
 					if(isset($sites))
 					{
-						$status = false;
-
 						$class = $this->_typeToClass($type);
+						$objectName = ucfirst($class::OBJECT_NAME);
+
 						$currentSites = $this->_objects[$class::OBJECT_KEY];
 						$missingSites = array_diff($sites, array_keys($currentSites));
 
@@ -77,21 +69,16 @@
 						{
 							foreach($missingSites as $site)
 							{
-								$Core_Api_Site = new $class($site);
-								$status = $Core_Api_Site->isValid();
+								$Core_Api_Site = new $class($site, $site);
+								$isValid = $Core_Api_Site->isValid();
 
-								if($status) {
-									$this->_objects[$class::OBJECT_KEY][$site] = $Core_Api_Site;
+								if($isValid) {
+									$this->_register($Core_Api_Site);
+									$this->_SHELL->error($objectName." '".$site."' activé", 'green');
 								}
-								else{
-									$objectName = ucfirst($Core_Api_Site::OBJECT_NAME);
+								else {
 									$this->_SHELL->error($objectName." '".$site."' invalide", 'orange');
-									break;
 								}
-							}
-
-							if($status) {
-								$this->_SHELL->print("Site(s) activé(s)", 'green');
 							}
 						}
 						else {
@@ -130,13 +117,13 @@
 				}
 				else
 				{
-					if(($Core_Api_Site = $this->_getSite($type, $name)) !== false) {
+					if(($Core_Api_Site = $this->getObject($type, $name)) !== false) {
 						$this->_unregister($Core_Api_Site);
 						$objectName = ucfirst($Core_Api_Site::OBJECT_NAME);
 						$this->_SHELL->print($objectName." '".$name."' supprimé", 'green');
 					}
 					else {
-						$objectName = $this->typeToName($type, true);
+						$objectName = $this->getName($type, true);
 						$this->_SHELL->print($objectName." '".$name."' introuvable", 'orange');
 					}
 				}
@@ -147,29 +134,65 @@
 			return false;
 		}
 
-		public function filter($type, $filter)
+		public function locate($type, $search, $strict = false)
 		{
 			return false;
 		}
 
-		public function format(Core\Api_Abstract $objectApi, array $listFields)
+		public function filter($type, $filter, $strict = false)
+		{
+			return false;
+		}
+
+		protected function _format(Core\Api_Abstract $objectApi, array $listFields, $view, $return)
 		{
 			if($objectApi instanceof Core\Api_Site)
 			{
-				$site = $objectApi->toObject();
-
-				// @todo tester sans $objectApi->toObject() --> iterator reference error, a debuguer
-				foreach($site['zones'] as $key => &$zones)
+				switch($return)
 				{
-					foreach($zones as $IPv => &$item) {
-						$item = sprintf($listFields['site']['zones']['format'], $key, $IPv, implode(', ', $item));
+					case self::RETURN_OBJECT:
+					case self::RETURN_TABLE: {
+						$site = $objectApi->toObject();
+						break;
 					}
-
-					$zones = implode(PHP_EOL, $zones);
+					case self::RETURN_ARRAY: {
+						$site = $objectApi->toArray();
+						break;
+					}
+					default: {
+						throw new Exception("Format return type '".$return."' is not valid", E_USER_ERROR);
+					}
 				}
 
-				$site['zones'] = implode(PHP_EOL, $site['zones']);
-				return $site;
+				if($view === self::VIEW_EXTENSIVE)
+				{
+					// @todo tester sans $objectApi->toObject() --> iterator reference error, a debuguer
+					foreach($site['zones'] as $key => &$zones)
+					{
+						foreach($zones as $IPv => &$item) {
+							$item = sprintf($listFields['site']['zones']['format'], $key, $IPv, implode(', ', $item));
+						}
+						unset($item);
+
+						$zones = implode(PHP_EOL, $zones);
+					}
+					unset($zones);
+
+					$site['zones'] = implode(PHP_EOL, $site['zones']);
+				}
+				else {
+					unset($site['zones']);
+				}
+
+				if($return === self::RETURN_TABLE)
+				{
+					// @todo a coder
+					//return C\Tools::formatShellTable(array($table), false, false, '/');
+					return $site;
+				}
+				else {
+					return $site;
+				}
 			}
 			else {
 				throw new Exception("Object API must be an instance of Core\Api_Site", E_USER_ERROR);

@@ -20,6 +20,7 @@
 		  * @var array
 		  */
 		protected $_datas = array(
+			'_id_' => null,
 			'name' => null,
 			'equipment' => null,
 			'zones' => array(),
@@ -29,11 +30,24 @@
 		);
 
 
-		public function __construct($name = null)
+		/**
+		  * @param string $id ID
+		  * @param string $name Name
+		  * @return $this
+		  */
+		public function __construct($id = null, $name = null)
 		{
+			$this->id($id);
 			$this->name($name);
 		}
 
+		/**
+		  * Sets name
+		  * Make auto load configuration
+		  *
+		  * @param string $name
+		  * @return bool
+		  */
 		public function name($name)
 		{
 			if(C\Tools::is('string&&!empty', $name)) {
@@ -105,18 +119,12 @@
 		public function isValid($returnInvalidAttributes = false)
 		{		
 			$tests = array(
-				'string&&!empty' => array(
-					self::FIELD_NAME,
-					'equipment'
-				),
-				'array&&count>0' => array(
-					'zones',
-					'topology'
-				),
-				'array&&count>=0' => array(
-					'metadata',
-					'options'
-				)
+				array(self::FIELD_NAME => 'string&&!empty'),
+				array('equipment' => 'string&&!empty'),
+				array('zones' => 'array&&count>0'),
+				array('topology' => 'array&&count>0'),
+				array('metadata' => 'array&&count>=0'),
+				array('options' => 'array&&count>=0'),
 			);
 
 			return $this->_isValid($tests, $returnInvalidAttributes);
@@ -140,15 +148,5 @@
 					return parent::__get($name);
 				}
 			}
-		}
-
-		public function sleep()
-		{
-			return array('name' => $this->_datas['name']);
-		}
-
-		public function wakeup(array $datas)
-		{
-			return $this->name($datas['name']);
 		}
 	}
