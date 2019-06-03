@@ -42,15 +42,15 @@ pcre.jit=0
 
 #### REPOSITORIES
 * git clone https://github.com/cloudwatt/php-cli-shell_base
-* git checkout tags/v2.1
+* git checkout tags/v2.1.1
 * git clone https://github.com/cloudwatt/php-cli-shell_firewall
-* git checkout tags/v2.1
+* git checkout tags/v2.1.1
 * Merge these two repositories
 
 #### PHPIPAM (Optionnal)
 If you have PHPIPAM and you want object name autocompletion, you have to perform these steps:
 * git clone https://github.com/cloudwatt/php-cli-shell_phpipam
-* git checkout tags/v2.1
+* git checkout tags/v2.1.1
 * Merge this repository with two previous repositories (base and firewall)
 * Install PHP-CLI SHELL for PHPIPAM with README helper  
   https://github.com/cloudwatt/php-cli-shell_phpipam
