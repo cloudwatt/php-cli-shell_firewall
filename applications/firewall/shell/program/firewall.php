@@ -1125,92 +1125,100 @@
 		  */
 		public function ipamSearch($type, $search)
 		{
-			$time1 = microtime(true);
-			$objects = $this->_searchObjects('.', $type, $search, false, true, true);
-			$time2 = microtime(true);
-
-			if($objects !== false)
+			if($this->_ipamFwProgram->isIpamAvailable())
 			{
-				$this->_RESULTS->append($objects);
-				$this->_SHELL->EOL()->print('RECHERCHE ('.round($time2-$time1).'s)', 'black', 'white', 'bold');
+				$time1 = microtime(true);
+				$objects = $this->_searchObjects('.', $type, $search, false, true, true);
+				$time2 = microtime(true);
 
-				if(!$this->_SHELL->isOneShotCall())
+				if($objects !== false)
 				{
-					if(isset($objects['hosts']))
+					$this->_RESULTS->append($objects);
+					$this->_SHELL->EOL()->print('RECHERCHE ('.round($time2-$time1).'s)', 'black', 'white', 'bold');
+
+					if(!$this->_SHELL->isOneShotCall())
 					{
-						$counter = count($objects['hosts']);
-						$this->_SHELL->EOL()->print('HOSTS ('.$counter.')', 'black', 'white');
-
-						if($counter > 0)
+						if(isset($objects['hosts']))
 						{
-							$this->_SHELL->displayWaitingMsg(true, false, 'Searching attributes from IPAM');
+							$counter = count($objects['hosts']);
+							$this->_SHELL->EOL()->print('HOSTS ('.$counter.')', 'black', 'white');
 
-							foreach($objects['hosts'] as &$host)
+							if($counter > 0)
 							{
-								$host = $host[$this->_ipamFwProgram::FIELD_IPAM_ATTRS];
-								$Ipam_Api_Address = new Ipam\Api_Address($host[Ipam\Api_Address::FIELD_ID]);
+								$this->_SHELL->displayWaitingMsg(true, false, 'Searching attributes from IPAM');
 
-								if(($Ipam_Api_Subnet = $Ipam_Api_Address->subnetApi) !== false) {
-									$subnetPath = $Ipam_Api_Subnet->getPath(true);
-								}
-								else {
-									$subnetPath = '';
-								}
+								foreach($objects['hosts'] as &$host)
+								{
+									$hostService = $host[$this->_ipamFwProgram::FIELD_IPAM_SERVICE];
+									$hostAttributes = $host[$this->_ipamFwProgram::FIELD_IPAM_ATTRIBUTES];
+									$Ipam_Api_Address = new Ipam\Api_Address($hostAttributes[Ipam\Api_Address::FIELD_ID], $hostService);
 
-								$host = array(
-									$subnetPath,
-									$Ipam_Api_Address->getLabel(),
-									$Ipam_Api_Address->getDescription(),
-									$Ipam_Api_Address->getAddress()
-								);
+									if(($Ipam_Api_Subnet = $Ipam_Api_Address->subnetApi) !== false) {
+										$subnetPath = $Ipam_Api_Subnet->getPath(true);
+									}
+									else {
+										$subnetPath = '';
+									}
+
+									$host = array(
+										$subnetPath,
+										$Ipam_Api_Address->getLabel(),
+										$Ipam_Api_Address->getDescription(),
+										$Ipam_Api_Address->getAddress()
+									);
+								}
+								unset($host);
+
+								$this->_SHELL->deleteWaitingMsg(true);
+								$table = C\Tools::formatShellTable($objects['hosts']);
+								$this->_SHELL->print($table, 'grey');
 							}
-							unset($host);
-
-							$this->_SHELL->deleteWaitingMsg(true);
-							$table = C\Tools::formatShellTable($objects['hosts']);
-							$this->_SHELL->print($table, 'grey');
+							else {
+								$this->_SHELL->error('Aucun résultat', 'orange');
+							}
 						}
-						else {
-							$this->_SHELL->error('Aucun résultat', 'orange');
-						}
-					}
 
-					if(isset($objects['subnets']))
-					{
-						$counter = count($objects['subnets']);
-						$this->_SHELL->EOL()->print('SUBNETS ('.$counter.')', 'black', 'white');
-
-						if($counter > 0)
+						if(isset($objects['subnets']))
 						{
-							$this->_SHELL->displayWaitingMsg(true, false, 'Searching attributes from IPAM');
+							$counter = count($objects['subnets']);
+							$this->_SHELL->EOL()->print('SUBNETS ('.$counter.')', 'black', 'white');
 
-							foreach($objects['subnets'] as &$subnet)
+							if($counter > 0)
 							{
-								$subnet = $subnet[$this->_ipamFwProgram::FIELD_IPAM_ATTRS];
-								$Ipam_Api_Subnet = new Ipam\Api_Subnet($subnet[Ipam\Api_Subnet::FIELD_ID]);
+								$this->_SHELL->displayWaitingMsg(true, false, 'Searching attributes from IPAM');
 
-								$subnet = array(
-									$Ipam_Api_Subnet->getPath(),
-									$Ipam_Api_Subnet->getLabel(),
-									$Ipam_Api_Subnet->getCidrSubnet()
-								);
+								foreach($objects['subnets'] as &$subnet)
+								{
+									$subnetService = $subnet[$this->_ipamFwProgram::FIELD_IPAM_SERVICE];
+									$subnetAttributes = $subnet[$this->_ipamFwProgram::FIELD_IPAM_ATTRIBUTES];
+									$Ipam_Api_Subnet = new Ipam\Api_Subnet($subnetAttributes[Ipam\Api_Subnet::FIELD_ID], $subnetService);
+
+									$subnet = array(
+										$Ipam_Api_Subnet->getPath(),
+										$Ipam_Api_Subnet->getLabel(),
+										$Ipam_Api_Subnet->getCidrSubnet()
+									);
+								}
+								unset($subnet);
+
+								$this->_SHELL->deleteWaitingMsg(true);
+								$table = C\Tools::formatShellTable($objects['subnets']);
+								$this->_SHELL->print($table, 'grey');
 							}
-							unset($subnet);
+							else {
+								$this->_SHELL->error('Aucun résultat', 'orange');
+							}
+						}
 
-							$this->_SHELL->deleteWaitingMsg(true);
-							$table = C\Tools::formatShellTable($objects['subnets']);
-							$this->_SHELL->print($table, 'grey');
-						}
-						else {
-							$this->_SHELL->error('Aucun résultat', 'orange');
-						}
+						$this->_SHELL->EOL();
 					}
-
-					$this->_SHELL->EOL();
+				}
+				else {
+					$this->_SHELL->error("Aucun résultat trouvé", 'orange');
 				}
 			}
 			else {
-				$this->_SHELL->error("Aucun résultat trouvé", 'orange');
+				$this->_SHELL->error("L'addon IPAM n'est pas installé ou n'est pas configuré", 'orange');
 			}
 
 			return true;
@@ -1520,6 +1528,8 @@
 					{
 						case Core\Api_Host::OBJECT_TYPE:
 						{
+							$objectFieldName = Core\Api_Host::FIELD_NAME;
+
 							if(Core\Tools::isIPv4($search)) {
 								$fieldToReturn = Core\Api_Host::FIELD_ATTRv4;
 								$searchIsValidAddress = true;
@@ -1529,10 +1539,10 @@
 								$searchIsValidAddress = true;
 							}
 							else {
-								$fieldToReturn = Core\Api_Host::FIELD_NAME;
+								$fieldToReturn = $objectFieldName;
 							}
 
-							$items = $this->_getHostInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, null, false, true);
+							$items = $this->_getHostInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, null, false, false);
 
 							if(count($items) === 0)
 							{
@@ -1550,6 +1560,8 @@
 						}
 						case Core\Api_Subnet::OBJECT_TYPE:
 						{
+							$objectFieldName = Core\Api_Subnet::FIELD_NAME;
+
 							if(Core\Tools::isSubnetV4($search)) {
 								$fieldToReturn = Core\Api_Subnet::FIELD_ATTRv4;
 								$searchIsValidAddress = true;
@@ -1559,10 +1571,10 @@
 								$searchIsValidAddress = true;
 							}
 							else {
-								$fieldToReturn = Core\Api_Subnet::FIELD_NAME;
+								$fieldToReturn = $objectFieldName;
 							}
 
-							$items = $this->_getSubnetInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, null, false, true);
+							$items = $this->_getSubnetInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, null, false, false);
 
 							if(count($items) === 0)
 							{
@@ -1580,6 +1592,8 @@
 						}
 						case Core\Api_Network::OBJECT_TYPE:
 						{
+							$objectFieldName = Core\Api_Network::FIELD_NAME;
+
 							if(Core\Tools::isNetworkV4($search, Core\Api_Network::SEPARATOR)) {
 								$fieldToReturn = Core\Api_Network::FIELD_ATTRv4;
 								$searchIsValidAddress = true;
@@ -1589,10 +1603,10 @@
 								$searchIsValidAddress = true;
 							}
 							else {
-								$fieldToReturn = Core\Api_Network::FIELD_NAME;
+								$fieldToReturn = $objectFieldName;
 							}
 
-							$items = $this->_getNetworkInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, null, false, true);
+							$items = $this->_getNetworkInfos($search, self::SEARCH_FROM_CURRENT_CONTEXT, null, false, false);
 							break;
 						}
 					}
@@ -1607,7 +1621,7 @@
 						if(count($items) > 0)
 						{
 							foreach($items as $item) {
-								$options[$item[$fieldToReturn]] = $item['name'];
+								$options[$item[$fieldToReturn]] = $item[$objectFieldName];
 							}
 						}
 						elseif($searchIsValidAddress)

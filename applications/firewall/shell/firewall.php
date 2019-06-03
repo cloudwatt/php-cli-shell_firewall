@@ -458,35 +458,38 @@
 
 		protected function _initAddons(array $servers, $printInfoMessages)
 		{
-			$Addon_Orchestrator = Ipam\Orchestrator::getInstance($this->_CONFIG->IPAM);
-			$Addon_Orchestrator->debug($this->_addonDebug);
-
-			foreach($servers as $server)
+			if(Shell_Program_Firewall_Ipam::hasIpamAddon())
 			{
-				$Addon_Service = $Addon_Orchestrator->newService($server);
+				$Addon_Orchestrator = Ipam\Orchestrator::getInstance($this->_CONFIG->IPAM);
+				$Addon_Orchestrator->debug($this->_addonDebug);
 
-				if($printInfoMessages) {
-					$adapterMethod = $Addon_Service->getMethod();
-					C\Tools::e(PHP_EOL."Connection ".$adapterMethod." à l'IPAM @ ".$server." veuillez patienter ... ", 'blue');
-				}
+				foreach($servers as $server)
+				{
+					$Addon_Service = $Addon_Orchestrator->newService($server);
 
-				try {
-					$isReady = $Addon_Service->initialization();
-				}
-				catch(\Exception $e) {
-					if($printInfoMessages) { C\Tools::e("[KO]", 'red'); }
-					$this->error("Impossible de démarrer le service IPAM:".PHP_EOL.$e->getMessage(), 'red');
-					exit;
-				}
+					if($printInfoMessages) {
+						$adapterMethod = $Addon_Service->getMethod();
+						C\Tools::e(PHP_EOL."Connection ".$adapterMethod." à l'IPAM @ ".$server." veuillez patienter ... ", 'blue');
+					}
 
-				if(!$isReady) {
-					if($printInfoMessages) { C\Tools::e("[KO]", 'red'); }
-					$this->error("Le service IPAM n'a pas pu être correctement initialisé", 'red');
-					exit;
-				}
+					try {
+						$isReady = $Addon_Service->initialization();
+					}
+					catch(\Exception $e) {
+						if($printInfoMessages) { C\Tools::e("[KO]", 'red'); }
+						$this->error("Impossible de démarrer le service IPAM:".PHP_EOL.$e->getMessage(), 'red');
+						exit;
+					}
 
-				if($printInfoMessages) {
-					C\Tools::e("[OK]", 'green');
+					if(!$isReady) {
+						if($printInfoMessages) { C\Tools::e("[KO]", 'red'); }
+						$this->error("Le service IPAM n'a pas pu être correctement initialisé", 'red');
+						exit;
+					}
+
+					if($printInfoMessages) {
+						C\Tools::e("[OK]", 'green');
+					}
 				}
 			}
 		}
