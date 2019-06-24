@@ -874,6 +874,8 @@
 									$flows[] = new ArrayObject(array(
 										'ruleId' => $ruleId,
 										'ruleName' => $Firewall_Api_Rule->name,
+										'state' => $Firewall_Api_Rule->state,
+										'action' => $Firewall_Api_Rule->action,
 										'source' => $Core_Api_Address__src,
 										'destination' => $Core_Api_Address__dst,
 										'protocol' => $Core_Api_Protocol
@@ -885,7 +887,7 @@
 
 					$time2 = microtime(true);
 					$this->_TERMINAL->deleteMessage(1, true);
-					$this->_SHELL->print("Inventaire des flows (".round($time2-$time1)."s) [OK]", 'green');
+					$this->_SHELL->print("Inventaire des flows {".count($flows)."} (".round($time2-$time1)."s) [OK]", 'green');
 					$this->_SHELL->print("Vérification doublons ...", 'orange');
 
 					foreach($flows as $index_a => $flow_a)
@@ -895,10 +897,10 @@
 
 						foreach($flows as $index_b => $flow_b)
 						{
-							if($index_a === $index_b) {
+							if($index_a >= $index_b) {
 								continue;
 							}
-							else
+							elseif($flow_a->action === $flow_b->action)
 							{
 								/**
 								  * /!\ A peut ne pas inclure B mais B peut inclure A

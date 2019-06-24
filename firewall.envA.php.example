@@ -1,6 +1,10 @@
 <?php
-	define("ROOT_DIR", __DIR__);
-	define("APP_DIR", __DIR__ . '/applications/firewall');
+	define("WORKING_ROOT_DIR", __DIR__);
+	define("PROJECT_ROOT_DIR", WORKING_ROOT_DIR);
+	define("APPLICATION_ROOT_DIR", PROJECT_ROOT_DIR.'/applications/firewall');
+
+	define("ROOT_DIR", WORKING_ROOT_DIR);
+	define("APP_DIR", APPLICATION_ROOT_DIR);
 
 	/**
 	  * Change [env] with the name of your environment
@@ -10,8 +14,8 @@
 	$configurations = array(
 		__DIR__ . '/configurations/ipam.json',
 		__DIR__ . '/configurations/ipam.user.json',
-		APP_DIR . '/configurations/firewall.json',
-		APP_DIR . '/configurations/firewall.user.json',
+		__DIR__ . '/configurations/firewall.json',
+		__DIR__ . '/configurations/firewall.user.json',
 		__DIR__ . '/configurations/firewall.[env].json',
 		__DIR__ . '/configurations/firewall.[env].user.json',
 	);

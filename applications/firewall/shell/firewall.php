@@ -396,9 +396,15 @@
 		protected $_sites = null;
 
 
-		public function __construct($configFilename, array $servers, $autoInitialisation = true)
+		/**
+		  * @param string|array|Core\Config $configuration
+		  * @param array $servers IPAM server keys
+		  * @param bool $autoInitialisation
+		  * @return $this
+		  */
+		public function __construct($configuration, array $servers = array(), $autoInitialisation = true)
 		{
-			parent::__construct($configFilename);
+			parent::__construct($configuration);
 
 			if(!$this->isOneShotCall()) {
 				$printInfoMessages = true;

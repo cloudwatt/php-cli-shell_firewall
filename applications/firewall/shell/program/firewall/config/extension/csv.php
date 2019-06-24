@@ -123,6 +123,7 @@
 
 			$fileExists = file_exists($filename);
 			$pathname = pathinfo($filename, PATHINFO_DIRNAME);
+			$pathname = C\Tools::pathname($pathname, true, true);		// Permet juste le mkdir
 
 			if((!$fileExists && is_writable($pathname)) || ($fileExists && is_writable($filename)))
 			{

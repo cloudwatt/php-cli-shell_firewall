@@ -1,0 +1,69 @@
+{
+	"FIREWALL": {
+		"sites": {
+			"datacenter_A": {
+				"location": "Paris, FRANCE",
+				"hostname": "firewall_dcA",
+				"ip": false,
+				"os": "juniper-junos",
+				"gui": false,
+				"scp": false,
+				"scp_loginCredential": false,
+				"scp_loginEnvVarName": false,
+				"scp_passwordCredential": false,
+				"scp_passwordEnvVarName": false,
+				"scp_remoteFile": false,
+				"ssh_remotePort": false,
+				"ssh_bastionHost": false,
+				"ssh_bastionPort": false,
+				"ssh_portForwarding": false,
+				"ssh_loginCredential": false,
+				"ssh_loginEnvVarName": false,
+				"ssh_passwordCredential": false,
+				"ssh_passwordEnvVarName": false,
+				"zones": {
+					"WAN": {
+						"ipv4": [ "0.0.0.0/0" ],
+						"ipv6": [ "::/0" ]
+					},
+					"LOCAL":	{
+						"ipv4": [ "10.0.0.0/16" ],
+						"ipv6": [ "2000::/64" ]
+					},
+					"__PRIVATE__": {
+						"ipv4": [ "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" ],
+						"ipv6": [ ]
+					}
+				},
+				"topology": {
+					"onPremise": [ "LOCAL" ],
+					"interSite": {
+					},
+					"private": [ "__PRIVATE__" ],
+					"internet": [ "WAN" ]
+				},
+				"metadata": {
+				},
+				"options": {
+				}
+			}
+		},
+		"configuration": {
+			"paths": {
+				"objects": "backup/firewall/objects.json",
+				"configs": "backup/firewall/configurations",
+				"exports": "tmp/firewall",
+				"autosave": "backup/firewall/autosave.json",
+				"templates": "templates/firewall"
+			},
+			"autosave": {
+				"status": false
+			},
+			"templates": {
+				"juniper-junos_set": {
+					"updateMode": "replace"
+				}
+			}
+		}
+	}
+}
