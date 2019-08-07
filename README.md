@@ -1,6 +1,8 @@
 PHP-CLI SHELL for FIREWALL
 -------------------
 
+__New release will be only available on https://github.com/Renji-FR/PhpCliShell__
+
 This repository is the addon for PHP-CLI SHELL about FIREWALL (acl) service.<br />
 With this addon you can create ACLs (monosite, failover and fullmesh) and generate template for your firewall appliance.<br />
 It is possible to upload ACLs config file to firewall with SCP. For SCP, you can use an SSH bastion.
